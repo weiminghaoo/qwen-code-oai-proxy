@@ -5,6 +5,34 @@ const { QwenAuthManager } = require('./auth.js');
 const DEFAULT_QWEN_API_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const DEFAULT_MODEL = 'qwen3-coder-plus';
 
+// List of known Qwen models
+const QWEN_MODELS = [
+  {
+    id: 'qwen3-coder-plus',
+    object: 'model',
+    created: 1754686206,
+    owned_by: 'qwen'
+  },
+  {
+    id: 'qwen3-coder-turbo',
+    object: 'model',
+    created: 1754686206,
+    owned_by: 'qwen'
+  },
+  {
+    id: 'qwen3-plus',
+    object: 'model',
+    created: 1754686206,
+    owned_by: 'qwen'
+  },
+  {
+    id: 'qwen3-turbo',
+    object: 'model',
+    created: 1754686206,
+    owned_by: 'qwen'
+  }
+];
+
 class QwenAPI {
   constructor() {
     this.authManager = new QwenAuthManager();
@@ -93,47 +121,13 @@ class QwenAPI {
   }
 
   async listModels() {
-    console.log('Listing models from Qwen API');
+    console.log('Returning mock models list');
     
-    // Get a valid access token
-    const credentials = await this.authManager.loadCredentials();
-    if (!credentials || !credentials.access_token) {
-      throw new Error('Not authenticated with Qwen. Please run authentication flow first.');
-    }
-    
-    const accessToken = credentials.access_token;
-    const apiEndpoint = await this.getApiEndpoint(credentials);
-    
-    // Make API call
-    const url = `${apiEndpoint}/models`;
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+    // Return a mock list of Qwen models since Qwen API doesn't have this endpoint
+    return {
+      object: 'list',
+      data: QWEN_MODELS
     };
-    
-    try {
-      console.log('Making request to:', url);
-      const response = await axios.get(url, { headers, timeout: 30000 });
-      console.log('Received response from Qwen API');
-      return response.data;
-    } catch (error) {
-      console.error('Error from Qwen API:');
-      console.error('Status:', error.response?.status);
-      console.error('Data:', error.response?.data);
-      console.error('Message:', error.message);
-      
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        // The request was made but no response was received
-        throw new Error(`Qwen API request failed: No response received`);
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        throw new Error(`Qwen API request failed: ${error.message}`);
-      }
-    }
   }
 
   async createEmbeddings(request) {
