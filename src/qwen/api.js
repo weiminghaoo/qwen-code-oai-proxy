@@ -98,7 +98,7 @@ class QwenAPI {
     
     try {
       console.log('Making request to:', url);
-      const response = await axios.post(url, payload, { headers, timeout: 30000 });
+      const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
       console.log('Received response from Qwen API');
       return response.data;
     } catch (error) {
@@ -157,7 +157,7 @@ class QwenAPI {
     
     try {
       console.log('Making request to:', url);
-      const response = await axios.post(url, payload, { headers, timeout: 30000 });
+      const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
       console.log('Received response from Qwen API');
       return response.data;
     } catch (error) {
