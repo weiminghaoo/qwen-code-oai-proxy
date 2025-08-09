@@ -3,6 +3,7 @@ const cors = require('cors');
 const config = require('./config.js');
 const { QwenAPI } = require('./qwen/api.js');
 const { QwenAuthManager } = require('./qwen/auth.js');
+const { DebugLogger } = require('./utils/logger.js');
 
 const app = express();
 // Increase body parser limits for large requests
@@ -13,11 +14,11 @@ app.use(cors());
 // Initialize Qwen API client
 const qwenAPI = new QwenAPI();
 const authManager = new QwenAuthManager();
+const debugLogger = new DebugLogger();
 
 // Main proxy server
 class QwenOpenAIProxy {
   async handleChatCompletion(req, res) {
-    console.log('Received chat completion request');
     try {
       // Call Qwen API through our integrated client
       const response = await qwenAPI.chatCompletions({
@@ -30,10 +31,21 @@ class QwenOpenAIProxy {
         top_p: req.body.top_p,
       });
       
-      console.log('Successfully received response from Qwen API');
+      // Log the API call
+      await debugLogger.logApiCall('/v1/chat/completions', req, response);
+      
+      // Print success message with debug file info in green
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const debugFileName = `debug-${timestamp}.txt`;
+      console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully. Debug log saved to: ${debugFileName}`);
+      
       res.json(response);
     } catch (error) {
-      console.error('Error processing request:', error);
+      // Log the API call with error
+      await debugLogger.logApiCall('/v1/chat/completions', req, null, error);
+      
+      // Print error message in red
+      console.error('\x1b[31m%s\x1b[0m', `Error processing chat completion request: ${error.message}`);
       
       // Handle authentication errors
       if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
@@ -55,14 +67,24 @@ class QwenOpenAIProxy {
   }
   
   async handleModels(req, res) {
-    console.log('Received models request');
     try {
       // Get models from Qwen
       const models = await qwenAPI.listModels();
-      console.log('Successfully received models from Qwen API');
+      // Log the API call
+      await debugLogger.logApiCall('/v1/models', req, models);
+      
+      // Print success message with debug file info in green
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const debugFileName = `debug-${timestamp}.txt`;
+      console.log('\x1b[32m%s\x1b[0m', `Models request processed successfully. Debug log saved to: ${debugFileName}`);
+      
       res.json(models);
     } catch (error) {
-      console.error('Error fetching models:', error);
+      // Log the API call with error
+      await debugLogger.logApiCall('/v1/models', req, null, error);
+      
+      // Print error message in red
+      console.error('\x1b[31m%s\x1b[0m', `Error fetching models: ${error.message}`);
       
       // Handle authentication errors
       if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
@@ -84,7 +106,6 @@ class QwenOpenAIProxy {
   }
   
   async handleEmbeddings(req, res) {
-    console.log('Received embeddings request');
     try {
       // Call Qwen embeddings API
       const embeddings = await qwenAPI.createEmbeddings({
@@ -92,10 +113,21 @@ class QwenOpenAIProxy {
         input: req.body.input,
       });
       
-      console.log('Successfully received embeddings from Qwen API');
+      // Log the API call
+      await debugLogger.logApiCall('/v1/embeddings', req, embeddings);
+      
+      // Print success message with debug file info in green
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const debugFileName = `debug-${timestamp}.txt`;
+      console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully. Debug log saved to: ${debugFileName}`);
+      
       res.json(embeddings);
     } catch (error) {
-      console.error('Error processing embeddings request:', error);
+      // Log the API call with error
+      await debugLogger.logApiCall('/v1/embeddings', req, null, error);
+      
+      // Print error message in red
+      console.error('\x1b[31m%s\x1b[0m', `Error processing embeddings request: ${error.message}`);
       
       // Handle authentication errors
       if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
@@ -117,19 +149,33 @@ class QwenOpenAIProxy {
   }
   
   async handleAuthInitiate(req, res) {
-    console.log('Received auth initiate request');
     try {
       // Initiate device flow
       const deviceFlow = await authManager.initiateDeviceFlow();
       
-      res.json({
+      const response = {
         verification_uri: deviceFlow.verification_uri,
         user_code: deviceFlow.user_code,
         device_code: deviceFlow.device_code,
         code_verifier: deviceFlow.code_verifier // This should be stored securely for polling
-      });
+      };
+      
+      // Log the API call
+      await debugLogger.logApiCall('/auth/initiate', req, response);
+      
+      // Print success message with debug file info in green
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const debugFileName = `debug-${timestamp}.txt`;
+      console.log('\x1b[32m%s\x1b[0m', `Auth initiate request processed successfully. Debug log saved to: ${debugFileName}`);
+      
+      res.json(response);
     } catch (error) {
-      console.error('Error initiating authentication:', error);
+      // Log the API call with error
+      await debugLogger.logApiCall('/auth/initiate', req, null, error);
+      
+      // Print error message in red
+      console.error('\x1b[31m%s\x1b[0m', `Error initiating authentication: ${error.message}`);
+      
       res.status(500).json({
         error: {
           message: error.message,
@@ -140,28 +186,50 @@ class QwenOpenAIProxy {
   }
   
   async handleAuthPoll(req, res) {
-    console.log('Received auth poll request');
     try {
       const { device_code, code_verifier } = req.body;
       
       if (!device_code || !code_verifier) {
-        return res.status(400).json({
+        const errorResponse = {
           error: {
             message: 'Missing device_code or code_verifier',
             type: 'invalid_request'
           }
-        });
+        };
+        
+        // Log the API call with error
+        await debugLogger.logApiCall('/auth/poll', req, null, new Error('Missing device_code or code_verifier'));
+        
+        // Print error message in red
+        console.error('\x1b[31m%s\x1b[0m', 'Error in auth poll: Missing device_code or code_verifier');
+        
+        return res.status(400).json(errorResponse);
       }
       
       // Poll for token
       const token = await authManager.pollForToken(device_code, code_verifier);
       
-      res.json({
+      const response = {
         access_token: token,
         message: 'Authentication successful'
-      });
+      };
+      
+      // Log the API call
+      await debugLogger.logApiCall('/auth/poll', req, response);
+      
+      // Print success message with debug file info in green
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const debugFileName = `debug-${timestamp}.txt`;
+      console.log('\x1b[32m%s\x1b[0m', `Auth poll request processed successfully. Debug log saved to: ${debugFileName}`);
+      
+      res.json(response);
     } catch (error) {
-      console.error('Error polling for token:', error);
+      // Log the API call with error
+      await debugLogger.logApiCall('/auth/poll', req, null, error);
+      
+      // Print error message in red
+      console.error('\x1b[31m%s\x1b[0m', `Error polling for token: ${error.message}`);
+      
       res.status(500).json({
         error: {
           message: error.message,

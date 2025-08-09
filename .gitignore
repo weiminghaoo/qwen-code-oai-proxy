@@ -114,3 +114,6 @@ qwen-code/
 
 # Test files
 test-proxy.js
+
+# Debug logs
+debug/
