@@ -4,7 +4,10 @@ A proxy server that exposes Qwen models through an OpenAI-compatible API endpoin
 
 ## Quick Start
 
-1.  **Prerequisites**: Make sure you are authenticated with the Qwen CLI and have a `~/.qwen/oauth_creds.json` file.
+1.  **Prerequisites**: You need to authenticate with Qwen using the official `qwen-code` CLI tool to generate the required credentials file.
+    *   Install the `qwen-code` CLI tool from [QwenLM/qwen-code](https://github.com/QwenLM/qwen-code)
+    *   Run `qwen-code auth` to authenticate with your Qwen account
+    *   This will create the `~/.qwen/oauth_creds.json` file needed by the proxy server
 2.  **Install Dependencies**:
     ```bash
     npm install
