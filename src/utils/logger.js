@@ -58,11 +58,13 @@ class DebugLogger {
    * @param {object} request - Request data
    * @param {object} response - Response data
    * @param {object} error - Error object if request failed
+   * @returns {string} The name of the debug file created
    */
   async logApiCall(endpoint, request, response, error = null) {
     try {
       const timestamp = this.getTimestampForFilename();
       const logFilePath = path.join(debugDir, `debug-${timestamp}.txt`);
+      const debugFileName = `debug-${timestamp}.txt`;
       
       // Extract only the relevant parts of the request
       const logRequest = {
@@ -95,10 +97,12 @@ class DebugLogger {
       
       await fs.writeFile(logFilePath, logContent);
       
-      // Removed console.log to avoid duplicate messages
+      // Print the debug file name to terminal in green
+      console.log('\x1b[32m%s\x1b[0m', `Debug log saved to: ${debugFileName}`);
     } catch (err) {
       // Don't let logging errors break the application
       // Silently handle logging errors to avoid cluttering the terminal
+      return null;
     }
   }
 

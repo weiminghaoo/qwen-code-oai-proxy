@@ -62,10 +62,6 @@ class QwenAPI {
   }
 
   async chatCompletions(request) {
-    console.log('Making chat completions request to Qwen API');
-    console.log('Request model:', request.model);
-    console.log('Request messages:', JSON.stringify(request.messages, null, 2));
-    
     // Get a valid access token
     const credentials = await this.authManager.loadCredentials();
     if (!credentials || !credentials.access_token) {
@@ -74,9 +70,6 @@ class QwenAPI {
     
     const accessToken = credentials.access_token;
     const apiEndpoint = await this.getApiEndpoint(credentials);
-    
-    console.log('Using API endpoint:', apiEndpoint);
-    console.log('Access token length:', accessToken.length);
     
     // Make API call
     const url = `${apiEndpoint}/chat/completions`;
@@ -97,16 +90,9 @@ class QwenAPI {
     };
     
     try {
-      console.log('Making request to:', url);
       const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
-      console.log('Received response from Qwen API');
       return response.data;
     } catch (error) {
-      console.error('Error from Qwen API:');
-      console.error('Status:', error.response?.status);
-      console.error('Data:', error.response?.data);
-      console.error('Message:', error.message);
-      
       if (error.response) {
         // The request was made and the server responded with a status code
         throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
@@ -131,8 +117,6 @@ class QwenAPI {
   }
 
   async createEmbeddings(request) {
-    console.log('Creating embeddings with Qwen API');
-    
     // Get a valid access token
     const credentials = await this.authManager.loadCredentials();
     if (!credentials || !credentials.access_token) {
@@ -156,16 +140,9 @@ class QwenAPI {
     };
     
     try {
-      console.log('Making request to:', url);
       const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
-      console.log('Received response from Qwen API');
       return response.data;
     } catch (error) {
-      console.error('Error from Qwen API:');
-      console.error('Status:', error.response?.status);
-      console.error('Data:', error.response?.data);
-      console.error('Message:', error.message);
-      
       if (error.response) {
         // The request was made and the server responded with a status code
         throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);

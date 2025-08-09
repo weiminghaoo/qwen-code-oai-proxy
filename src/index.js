@@ -32,20 +32,26 @@ class QwenOpenAIProxy {
       });
       
       // Log the API call
-      await debugLogger.logApiCall('/v1/chat/completions', req, response);
+      const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, response);
       
       // Print success message with debug file info in green
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const debugFileName = `debug-${timestamp}.txt`;
-      console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully. Debug log saved to: ${debugFileName}`);
+      if (debugFileName) {
+        console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.log('\x1b[32m%s\x1b[0m', 'Chat completion request processed successfully.');
+      }
       
       res.json(response);
     } catch (error) {
       // Log the API call with error
-      await debugLogger.logApiCall('/v1/chat/completions', req, null, error);
+      const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, null, error);
       
       // Print error message in red
-      console.error('\x1b[31m%s\x1b[0m', `Error processing chat completion request: ${error.message}`);
+      if (debugFileName) {
+        console.error('\x1b[31m%s\x1b[0m', `Error processing chat completion request. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.error('\x1b[31m%s\x1b[0m', 'Error processing chat completion request.');
+      }
       
       // Handle authentication errors
       if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
@@ -71,20 +77,26 @@ class QwenOpenAIProxy {
       // Get models from Qwen
       const models = await qwenAPI.listModels();
       // Log the API call
-      await debugLogger.logApiCall('/v1/models', req, models);
+      const debugFileName = await debugLogger.logApiCall('/v1/models', req, models);
       
       // Print success message with debug file info in green
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const debugFileName = `debug-${timestamp}.txt`;
-      console.log('\x1b[32m%s\x1b[0m', `Models request processed successfully. Debug log saved to: ${debugFileName}`);
+      if (debugFileName) {
+        console.log('\x1b[32m%s\x1b[0m', `Models request processed successfully. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.log('\x1b[32m%s\x1b[0m', 'Models request processed successfully.');
+      }
       
       res.json(models);
     } catch (error) {
       // Log the API call with error
-      await debugLogger.logApiCall('/v1/models', req, null, error);
+      const debugFileName = await debugLogger.logApiCall('/v1/models', req, null, error);
       
       // Print error message in red
-      console.error('\x1b[31m%s\x1b[0m', `Error fetching models: ${error.message}`);
+      if (debugFileName) {
+        console.error('\x1b[31m%s\x1b[0m', `Error fetching models. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.error('\x1b[31m%s\x1b[0m', 'Error fetching models.');
+      }
       
       // Handle authentication errors
       if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
@@ -114,12 +126,14 @@ class QwenOpenAIProxy {
       });
       
       // Log the API call
-      await debugLogger.logApiCall('/v1/embeddings', req, embeddings);
+      const debugFileName = await debugLogger.logApiCall('/v1/embeddings', req, embeddings);
       
       // Print success message with debug file info in green
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const debugFileName = `debug-${timestamp}.txt`;
-      console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully. Debug log saved to: ${debugFileName}`);
+      if (debugFileName) {
+        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.log('\x1b[32m%s\x1b[0m', 'Embeddings request processed successfully.');
+      }
       
       res.json(embeddings);
     } catch (error) {
@@ -161,12 +175,14 @@ class QwenOpenAIProxy {
       };
       
       // Log the API call
-      await debugLogger.logApiCall('/auth/initiate', req, response);
+      const debugFileName = await debugLogger.logApiCall('/auth/initiate', req, response);
       
       // Print success message with debug file info in green
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const debugFileName = `debug-${timestamp}.txt`;
-      console.log('\x1b[32m%s\x1b[0m', `Auth initiate request processed successfully. Debug log saved to: ${debugFileName}`);
+      if (debugFileName) {
+        console.log('\x1b[32m%s\x1b[0m', `Auth initiate request processed successfully. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.log('\x1b[32m%s\x1b[0m', 'Auth initiate request processed successfully.');
+      }
       
       res.json(response);
     } catch (error) {
@@ -215,12 +231,14 @@ class QwenOpenAIProxy {
       };
       
       // Log the API call
-      await debugLogger.logApiCall('/auth/poll', req, response);
+      const debugFileName = await debugLogger.logApiCall('/auth/poll', req, response);
       
       // Print success message with debug file info in green
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const debugFileName = `debug-${timestamp}.txt`;
-      console.log('\x1b[32m%s\x1b[0m', `Auth poll request processed successfully. Debug log saved to: ${debugFileName}`);
+      if (debugFileName) {
+        console.log('\x1b[32m%s\x1b[0m', `Auth poll request processed successfully. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.log('\x1b[32m%s\x1b[0m', 'Auth poll request processed successfully.');
+      }
       
       res.json(response);
     } catch (error) {

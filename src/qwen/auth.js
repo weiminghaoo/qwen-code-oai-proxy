@@ -23,13 +23,10 @@ class QwenAuthManager {
       return this.credentials;
     }
     try {
-      console.log(`Loading credentials from: ${this.credentialsPath}`);
       const credentialsData = await fs.readFile(this.credentialsPath, 'utf8');
       this.credentials = JSON.parse(credentialsData);
-      console.log('Credentials loaded successfully');
       return this.credentials;
     } catch (error) {
-      console.error('Error loading credentials:', error.message);
       return null;
     }
   }
@@ -39,7 +36,6 @@ class QwenAuthManager {
       const credString = JSON.stringify(credentials, null, 2);
       await fs.writeFile(this.credentialsPath, credString);
       this.credentials = credentials;
-      console.log('Credentials saved successfully.');
     } catch (error) {
       console.error('Error saving credentials:', error.message);
     }
@@ -57,7 +53,6 @@ class QwenAuthManager {
       throw new Error('No refresh token available. Please re-authenticate with the Qwen CLI.');
     }
 
-    console.log('Access token expired or invalid, attempting to refresh...');
     const bodyData = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: credentials.refresh_token,
@@ -86,13 +81,11 @@ class QwenAuthManager {
         token_type: tokenData.token_type,
         refresh_token: tokenData.refresh_token || credentials.refresh_token,
         expiry_date: Date.now() + tokenData.expires_in * 1000,
-      };
+      }
 
       await this.saveCredentials(newCredentials);
-      console.log('Access token refreshed and saved successfully.');
       return newCredentials;
     } catch (error) {
-      console.error('An error occurred during token refresh:', error.message);
       // If refresh fails, the user likely needs to re-auth completely.
       throw new Error('Failed to refresh access token. Please re-authenticate with the Qwen CLI.');
     }
@@ -106,7 +99,6 @@ class QwenAuthManager {
     }
 
     if (this.isTokenValid(credentials)) {
-      console.log('Existing access token is valid.');
       return credentials.access_token;
     }
 

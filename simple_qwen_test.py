@@ -101,17 +101,37 @@ def make_api_call(prompt):
         print(f"Error making API call: {str(e)}")
         return False
 
+def read_file_content(file_path):
+    """Read content from a file"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error reading file {file_path}: {str(e)}")
+        return None
+
 def main():
     """Main function"""
     if len(sys.argv) < 2:
         print("Usage: python3 simple_qwen_test.py \"your prompt here\"")
+        print("   or: python3 simple_qwen_test.py /path/to/file")
         return
     
-    prompt = " ".join(sys.argv[1:])
+    # Check if the argument is a file path
+    arg = sys.argv[1]
+    if os.path.isfile(arg):
+        # Read file content as prompt
+        prompt = read_file_content(arg)
+        if prompt is None:
+            return
+        print(f"Using content of file '{arg}' as prompt")
+    else:
+        # Use command line arguments as prompt
+        prompt = " ".join(sys.argv[1:])
     
     print("Qwen Direct API Test")
     print("=" * 20)
-    print(f"Prompt: {prompt}")
+    print(f"Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
     
     success = make_api_call(prompt)
     if not success:
