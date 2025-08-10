@@ -27,6 +27,48 @@ class QwenOpenAIProxy {
       // Display token count in terminal
       console.log('\x1b[36m%s\x1b[0m', `Chat completion request received with ${tokenCount} tokens`);
       
+      // Check if streaming is requested
+      const isStreaming = req.body.stream === true;
+      
+      if (isStreaming) {
+        // Handle streaming response
+        await this.handleStreamingChatCompletion(req, res);
+      } else {
+        // Handle regular response
+        await this.handleRegularChatCompletion(req, res);
+      }
+    } catch (error) {
+      // Log the API call with error
+      const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, null, error);
+      
+      // Print error message in red
+      if (debugFileName) {
+        console.error('\x1b[31m%s\x1b[0m', `Error processing chat completion request. Debug log saved to: ${debugFileName}`);
+      } else {
+        console.error('\x1b[31m%s\x1b[0m', 'Error processing chat completion request.');
+      }
+      
+      // Handle authentication errors
+      if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
+        return res.status(401).json({
+          error: {
+            message: 'Not authenticated with Qwen. Please authenticate first.',
+            type: 'authentication_error'
+          }
+        });
+      }
+      
+      res.status(500).json({
+        error: {
+          message: error.message,
+          type: 'internal_server_error'
+        }
+      });
+    }
+  }
+  
+  async handleRegularChatCompletion(req, res) {
+    try {
       // Call Qwen API through our integrated client
       const response = await qwenAPI.chatCompletions({
         model: req.body.model || config.defaultModel,
@@ -57,32 +99,59 @@ class QwenOpenAIProxy {
       
       res.json(response);
     } catch (error) {
-      // Log the API call with error
-      const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, null, error);
+      throw error; // Re-throw to be handled by the main handler
+    }
+  }
+  
+  async handleStreamingChatCompletion(req, res) {
+    try {
+      // Set streaming headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('Access-Control-Allow-Origin', '*');
       
-      // Print error message in red
-      if (debugFileName) {
-        console.error('\x1b[31m%s\x1b[0m', `Error processing chat completion request. Debug log saved to: ${debugFileName}`);
-      } else {
-        console.error('\x1b[31m%s\x1b[0m', 'Error processing chat completion request.');
-      }
-      
-      // Handle authentication errors
-      if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
-        return res.status(401).json({
-          error: {
-            message: 'Not authenticated with Qwen. Please authenticate first.',
-            type: 'authentication_error'
-          }
-        });
-      }
-      
-      res.status(500).json({
-        error: {
-          message: error.message,
-          type: 'internal_server_error'
-        }
+      // Call Qwen API streaming method
+      const stream = await qwenAPI.streamChatCompletions({
+        model: req.body.model || config.defaultModel,
+        messages: req.body.messages,
+        tools: req.body.tools,
+        tool_choice: req.body.tool_choice,
+        temperature: req.body.temperature,
+        max_tokens: req.body.max_tokens,
+        top_p: req.body.top_p,
       });
+      
+      // Log the API call (without response data since it's streaming)
+      const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, { streaming: true });
+      
+      // Print streaming request message
+      console.log('\x1b[32m%s\x1b[0m', `Streaming chat completion request started. Debug log saved to: ${debugFileName}`);
+      
+      // Pipe the stream to the response
+      stream.pipe(res);
+      
+      // Handle stream errors
+      stream.on('error', (error) => {
+        console.error('\x1b[31m%s\x1b[0m', `Error in streaming chat completion: ${error.message}`);
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: {
+              message: error.message,
+              type: 'streaming_error'
+            }
+          });
+        }
+        res.end();
+      });
+      
+      // Handle client disconnect
+      req.on('close', () => {
+        stream.destroy();
+      });
+      
+    } catch (error) {
+      throw error; // Re-throw to be handled by the main handler
     }
   }
   

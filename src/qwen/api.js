@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { QwenAuthManager } = require('./auth.js');
+const { PassThrough } = require('stream');
 
 // Default Qwen configuration
 const DEFAULT_QWEN_API_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -218,6 +219,120 @@ class QwenAPI {
           console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
           // If retry fails, throw the original error with additional context
           throw new Error(`Qwen API error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+        }
+      }
+      
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        // The request was made but no response was received
+        throw new Error(`Qwen API request failed: No response received`);
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        throw new Error(`Qwen API request failed: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Stream chat completions from Qwen API
+   * @param {Object} request - The chat completion request
+   * @returns {Promise<Stream>} - A stream of SSE events
+   */
+  async streamChatCompletions(request) {
+    // Get a valid access token (automatically refreshes if needed)
+    const accessToken = await this.authManager.getValidAccessToken();
+    const credentials = await this.authManager.loadCredentials();
+    const apiEndpoint = await this.getApiEndpoint(credentials);
+    
+    // Make streaming API call
+    const url = `${apiEndpoint}/chat/completions`;
+    const payload = {
+      model: request.model || DEFAULT_MODEL,
+      messages: request.messages,
+      temperature: request.temperature,
+      max_tokens: request.max_tokens,
+      top_p: request.top_p,
+      tools: request.tools,
+      tool_choice: request.tool_choice,
+      stream: true, // Enable streaming
+      stream_options: { include_usage: true } // Include usage data in final chunk
+    };
+    
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+      'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
+      'Accept': 'text/event-stream'
+    };
+    
+    try {
+      // Create a pass-through stream to forward the response
+      const stream = new PassThrough();
+      
+      // Make the HTTP request with streaming response
+      const response = await axios.post(url, payload, {
+        headers,
+        timeout: 300000, // 5 minute timeout
+        responseType: 'stream'
+      });
+      
+      // Pipe the response stream to our pass-through stream
+      response.data.pipe(stream);
+      
+      // Handle authentication errors during streaming
+      response.data.on('error', async (error) => {
+        if (isAuthError(error)) {
+          console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
+          try {
+            // Force refresh the token
+            await this.authManager.performTokenRefresh(credentials);
+            console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
+          } catch (refreshError) {
+            console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
+            stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+          }
+        } else {
+          stream.emit('error', error);
+        }
+      });
+      
+      return stream;
+    } catch (error) {
+      // Check if this is an authentication error that might benefit from a retry
+      if (isAuthError(error)) {
+        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+        try {
+          // Force refresh the token and retry once
+          await this.authManager.performTokenRefresh(credentials);
+          const newAccessToken = await this.authManager.getValidAccessToken();
+          
+          // Retry the request with the new token
+          console.log('\x1b[36m%s\x1b[0m', 'Retrying streaming request with refreshed token...');
+          const retryHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${newAccessToken}`,
+            'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
+            'Accept': 'text/event-stream'
+          };
+          
+          // Create a new pass-through stream for the retry
+          const retryStream = new PassThrough();
+          
+          const retryResponse = await axios.post(url, payload, {
+            headers: retryHeaders,
+            timeout: 300000,
+            responseType: 'stream'
+          });
+          
+          retryResponse.data.pipe(retryStream);
+          console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
+          return retryStream;
+        } catch (retryError) {
+          console.error('\x1b[31m%s\x1b[0m', 'Streaming request failed even after token refresh');
+          // If retry fails, throw the original error with additional context
+          throw new Error(`Qwen API streaming error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
         }
       }
       
