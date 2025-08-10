@@ -2,6 +2,11 @@
 
 A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint.
 
+## Important Notes
+
+Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models. Qwen code it self tends to also break down and get stuck on this limit . 
+
+
 ## Quick Start
 
 1.  **Prerequisites**: You need to authenticate with Qwen using the official `qwen-code` CLI tool to generate the required credentials file.
@@ -63,9 +68,6 @@ main();
 *   `POST /v1/chat/completions`
 *   `POST /v1/embeddings`
 
-## Important Notes
-
-Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models.
 
 ## Token Counting
 
