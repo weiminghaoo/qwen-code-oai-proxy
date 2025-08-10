@@ -1,5 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
+const config = require('../config.js');
 
 // Ensure debug directory exists
 const debugDir = path.join(__dirname, '..', '..', 'debug');
@@ -16,6 +17,49 @@ class DebugLogger {
     } catch (error) {
       // Directory doesn't exist, create it
       await fs.mkdir(debugDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Enforce log file limit by removing oldest files when limit is exceeded
+   * @param {number} limit - Maximum number of log files to keep
+   */
+  async enforceLogFileLimit(limit) {
+    try {
+      // Get all debug files in the directory
+      const files = await fs.readdir(debugDir);
+      
+      // Filter for debug files only (starting with 'debug-' and ending with '.txt')
+      const debugFiles = files.filter(file => 
+        file.startsWith('debug-') && file.endsWith('.txt')
+      );
+      
+      // If we have more files than the limit, remove the oldest ones
+      if (debugFiles.length > limit) {
+        // Get file stats to sort by creation time
+        const fileStats = await Promise.all(
+          debugFiles.map(async (file) => {
+            const filePath = path.join(debugDir, file);
+            const stats = await fs.stat(filePath);
+            return { file, mtime: stats.mtime };
+          })
+        );
+        
+        // Sort by modification time (oldest first)
+        fileStats.sort((a, b) => a.mtime - b.mtime);
+        
+        // Calculate how many files to remove
+        const filesToRemove = fileStats.length - limit;
+        
+        // Remove the oldest files
+        for (let i = 0; i < filesToRemove; i++) {
+          const filePath = path.join(debugDir, fileStats[i].file);
+          await fs.unlink(filePath);
+        }
+      }
+    } catch (error) {
+      // Silently handle errors to avoid breaking the application
+      // Log file limit enforcement is not critical to the main functionality
     }
   }
 
@@ -61,6 +105,12 @@ class DebugLogger {
    * @returns {string} The name of the debug file created
    */
   async logApiCall(endpoint, request, response, error = null) {
+    // Check if debug logging is enabled
+    if (!config.debugLog) {
+      // If debug logging is disabled, just return without creating log files
+      return null;
+    }
+    
     try {
       const timestamp = this.getTimestampForFilename();
       const logFilePath = path.join(debugDir, `debug-${timestamp}.txt`);
@@ -97,8 +147,13 @@ class DebugLogger {
       
       await fs.writeFile(logFilePath, logContent);
       
+      // Enforce log file limit
+      await this.enforceLogFileLimit(config.logFileLimit);
+      
       // Print the debug file name to terminal in green
       console.log('\x1b[32m%s\x1b[0m', `Debug log saved to: ${debugFileName}`);
+      
+      return debugFileName;
     } catch (err) {
       // Don't let logging errors break the application
       // Silently handle logging errors to avoid cluttering the terminal

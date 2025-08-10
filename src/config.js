@@ -20,5 +20,9 @@ module.exports = {
   defaultModel: process.env.DEFAULT_MODEL || 'qwen3-coder-plus',
   
   // Token refresh buffer (milliseconds)
-  tokenRefreshBuffer: parseInt(process.env.TOKEN_REFRESH_BUFFER) || 30000 // 30 seconds
+  tokenRefreshBuffer: parseInt(process.env.TOKEN_REFRESH_BUFFER) || 30000, // 30 seconds
+  
+  // Debug logging configuration
+  debugLog: process.env.DEBUG_LOG === 'true' ? true : false, // Enable/disable debug logging (disabled by default)
+  logFileLimit: parseInt(process.env.LOG_FILE_LIMIT) || 20 // Maximum number of log files to keep
 };

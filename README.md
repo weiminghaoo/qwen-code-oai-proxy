@@ -18,6 +18,22 @@ A proxy server that exposes Qwen models through an OpenAI-compatible API endpoin
     ```
 4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`.
 
+## Configuration
+
+The proxy server can be configured using environment variables. Create a `.env` file in the project root or set the variables directly in your environment.
+
+*   `LOG_FILE_LIMIT`: Maximum number of debug log files to keep (default: 20)
+*   `DEBUG_LOG`: Set to `true` to enable debug logging (default: false)
+
+Example `.env` file:
+```bash
+# Keep only the 10 most recent log files
+LOG_FILE_LIMIT=10
+
+# Enable debug logging (log files will be created)
+DEBUG_LOG=true
+```
+
 ## Example Usage
 
 ```javascript
