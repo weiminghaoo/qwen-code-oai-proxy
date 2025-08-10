@@ -16,6 +16,7 @@ class QwenAuthManager {
   constructor() {
     this.credentialsPath = path.join(process.env.HOME || process.env.USERPROFILE, QWEN_DIR, QWEN_CREDENTIAL_FILENAME);
     this.credentials = null;
+    this.refreshPromise = null;
   }
 
   async loadCredentials() {
@@ -49,6 +50,8 @@ class QwenAuthManager {
   }
 
   async refreshAccessToken(credentials) {
+    console.log('\x1b[33m%s\x1b[0m', 'Refreshing Qwen access token...');
+    
     if (!credentials || !credentials.refresh_token) {
       throw new Error('No refresh token available. Please re-authenticate with the Qwen CLI.');
     }
@@ -84,26 +87,59 @@ class QwenAuthManager {
       }
 
       await this.saveCredentials(newCredentials);
+      console.log('\x1b[32m%s\x1b[0m', 'Qwen access token refreshed successfully');
       return newCredentials;
     } catch (error) {
+      console.error('\x1b[31m%s\x1b[0m', 'Failed to refresh Qwen access token');
       // If refresh fails, the user likely needs to re-auth completely.
       throw new Error('Failed to refresh access token. Please re-authenticate with the Qwen CLI.');
     }
   }
 
   async getValidAccessToken() {
-    let credentials = await this.loadCredentials();
-
-    if (!credentials) {
-      throw new Error('No credentials found. Please authenticate with Qwen CLI first.');
+    // If there's already a refresh in progress, wait for it
+    if (this.refreshPromise) {
+      console.log('\x1b[36m%s\x1b[0m', 'Waiting for ongoing token refresh...');
+      return this.refreshPromise;
     }
 
-    if (this.isTokenValid(credentials)) {
-      return credentials.access_token;
-    }
+    try {
+      let credentials = await this.loadCredentials();
 
-    const newCredentials = await this.refreshAccessToken(credentials);
-    return newCredentials.access_token;
+      if (!credentials) {
+        throw new Error('No credentials found. Please authenticate with Qwen CLI first.');
+      }
+
+      // Check if token is valid
+      if (this.isTokenValid(credentials)) {
+        console.log('\x1b[32m%s\x1b[0m', 'Using valid Qwen access token');
+        return credentials.access_token;
+      } else {
+        console.log('\x1b[33m%s\x1b[0m', 'Qwen access token expired or expiring soon, refreshing...');
+      }
+
+      // Token needs refresh, start refresh operation
+      this.refreshPromise = this.performTokenRefresh(credentials);
+      
+      try {
+        const newCredentials = await this.refreshPromise;
+        return newCredentials.access_token;
+      } finally {
+        this.refreshPromise = null;
+      }
+    } catch (error) {
+      this.refreshPromise = null;
+      throw error;
+    }
+  }
+
+  async performTokenRefresh(credentials) {
+    try {
+      const newCredentials = await this.refreshAccessToken(credentials);
+      return newCredentials;
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

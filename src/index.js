@@ -4,6 +4,7 @@ const config = require('./config.js');
 const { QwenAPI } = require('./qwen/api.js');
 const { QwenAuthManager } = require('./qwen/auth.js');
 const { DebugLogger } = require('./utils/logger.js');
+const { countTokens } = require('./utils/tokenCounter.js');
 
 const app = express();
 // Increase body parser limits for large requests
@@ -20,6 +21,12 @@ const debugLogger = new DebugLogger();
 class QwenOpenAIProxy {
   async handleChatCompletion(req, res) {
     try {
+      // Count tokens in the request
+      const tokenCount = countTokens(req.body.messages);
+      
+      // Display token count in terminal
+      console.log('\x1b[36m%s\x1b[0m', `Chat completion request received with ${tokenCount} tokens`);
+      
       // Call Qwen API through our integrated client
       const response = await qwenAPI.chatCompletions({
         model: req.body.model || config.defaultModel,
@@ -34,11 +41,18 @@ class QwenOpenAIProxy {
       // Log the API call
       const debugFileName = await debugLogger.logApiCall('/v1/chat/completions', req, response);
       
+      // Display token usage if available in response
+      let tokenInfo = '';
+      if (response && response.usage) {
+        const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+        tokenInfo = ` (Prompt: ${prompt_tokens}, Completion: ${completion_tokens}, Total: ${total_tokens} tokens)`;
+      }
+      
       // Print success message with debug file info in green
       if (debugFileName) {
-        console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully. Debug log saved to: ${debugFileName}`);
+        console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully${tokenInfo}. Debug log saved to: ${debugFileName}`);
       } else {
-        console.log('\x1b[32m%s\x1b[0m', 'Chat completion request processed successfully.');
+        console.log('\x1b[32m%s\x1b[0m', `Chat completion request processed successfully${tokenInfo}.`);
       }
       
       res.json(response);
@@ -74,6 +88,9 @@ class QwenOpenAIProxy {
   
   async handleModels(req, res) {
     try {
+      // Display request in terminal
+      console.log('\x1b[36m%s\x1b[0m', 'Models request received');
+      
       // Get models from Qwen
       const models = await qwenAPI.listModels();
       // Log the API call
@@ -119,6 +136,14 @@ class QwenOpenAIProxy {
   
   async handleEmbeddings(req, res) {
     try {
+      // Count tokens in the request
+      const tokenCount = Array.isArray(req.body.input) 
+        ? req.body.input.reduce((total, text) => total + countTokens(text), 0)
+        : countTokens(req.body.input);
+      
+      // Display token count in terminal
+      console.log('\x1b[36m%s\x1b[0m', `Embeddings request received with ${tokenCount} tokens`);
+      
       // Call Qwen embeddings API
       const embeddings = await qwenAPI.createEmbeddings({
         model: req.body.model || 'text-embedding-v1',
@@ -128,11 +153,18 @@ class QwenOpenAIProxy {
       // Log the API call
       const debugFileName = await debugLogger.logApiCall('/v1/embeddings', req, embeddings);
       
+      // Display token usage if available in response
+      let tokenInfo = '';
+      if (embeddings && embeddings.usage) {
+        const { prompt_tokens, total_tokens } = embeddings.usage;
+        tokenInfo = ` (Prompt: ${prompt_tokens}, Total: ${total_tokens} tokens)`;
+      }
+      
       // Print success message with debug file info in green
       if (debugFileName) {
-        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully. Debug log saved to: ${debugFileName}`);
+        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully${tokenInfo}. Debug log saved to: ${debugFileName}`);
       } else {
-        console.log('\x1b[32m%s\x1b[0m', 'Embeddings request processed successfully.');
+        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully${tokenInfo}.`);
       }
       
       res.json(embeddings);

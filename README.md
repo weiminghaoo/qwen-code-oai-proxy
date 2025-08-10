@@ -63,4 +63,12 @@ main();
 *   `POST /v1/chat/completions`
 *   `POST /v1/embeddings`
 
+## Important Notes
+
+Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models.
+
+## Token Counting
+
+The proxy now displays token counts in the terminal for each request, showing both input tokens and API-returned usage statistics (prompt, completion, and total tokens).
+
 For more detailed documentation, see the `docs/` directory.

@@ -25,24 +25,44 @@ Based on the source code analysis:
 
 3. **Qwen API Backend**: The 504 "stream timeout" error originates from Qwen's infrastructure, suggesting that their streaming endpoint has internal timeout limits.
 
-## Error Handling in qwen-code
+4. **Token Expiration Issues**: Expired access tokens were causing authentication failures that manifested as 504 Gateway Timeout errors from Qwen's API. The proxy was not validating token expiration before use.
 
-The qwen-code CLI tool has robust timeout handling:
+## Solution Implementation
 
-1. **Timeout Detection**: The `OpenAIContentGenerator` class has comprehensive timeout detection that identifies various timeout indicators:
-   - "timeout" in error message
-   - "timed out" in error message
-   - "connection timeout" in error message
-   - ETIMEDOUT error codes
-   - ESOCKETTIMEDOUT error codes
+### Token Validation and Refresh
 
-2. **Helpful Error Messages**: When timeouts occur, the system provides troubleshooting tips:
-   - Reduce input length or complexity
-   - Increase timeout configuration
-   - Check network connectivity
-   - Consider using non-streaming mode
+The proxy has been enhanced with robust token management that matches the official qwen-code CLI implementation:
 
-3. **Streaming-Specific Handling**: Special handling for streaming timeouts with different troubleshooting guidance.
+1. **Automatic Token Validation**: Before each API request, the proxy now checks if the access token is still valid using the same logic as qwen-code.
+
+2. **Proactive Token Refresh**: Tokens are automatically refreshed 30 seconds before they expire, preventing authentication failures.
+
+3. **Error-Based Retry Logic**: When 504 Gateway Timeout errors occur (which were often caused by expired tokens), the proxy now:
+   - Detects the authentication error
+   - Automatically refreshes the access token
+   - Retries the request with the new token
+   - Only fails if the retry also fails
+
+4. **Concurrent Request Handling**: Multiple simultaneous requests are handled efficiently using a `refreshPromise` pattern that prevents multiple simultaneous token refresh attempts.
+
+### Logging and Monitoring
+
+The enhanced implementation provides detailed logging to help diagnose token-related issues:
+
+- **Token Status**: Shows when tokens are valid vs. when they need refreshing
+- **Refresh Operations**: Logs when token refresh starts and completes
+- **Retry Attempts**: Shows when auth errors trigger automatic retries
+- **Success/Failure**: Clear indication of whether retries succeed or fail
+
+### Benefits
+
+1. **Eliminates 504 Errors**: Most 504 Gateway Timeout errors caused by expired tokens are now resolved automatically.
+
+2. **Improved Reliability**: No more need to manually restart the proxy when tokens expire.
+
+3. **Better User Experience**: Requests succeed automatically without user intervention.
+
+4. **Alignment with Official Tool**: Implementation now matches the robust token handling of the official qwen-code CLI.
 
 ## Recommendations
 

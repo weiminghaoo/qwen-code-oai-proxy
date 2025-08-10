@@ -33,6 +33,40 @@ const QWEN_MODELS = [
   }
 ];
 
+/**
+ * Check if an error is related to authentication/authorization
+ */
+function isAuthError(error) {
+  if (!error) return false;
+
+  const errorMessage = 
+    error instanceof Error 
+      ? error.message.toLowerCase() 
+      : String(error).toLowerCase();
+
+  // Define a type for errors that might have status or code properties
+  const errorWithCode = error;
+  const errorCode = errorWithCode?.response?.status || errorWithCode?.code;
+
+  return (
+    errorCode === 400 ||
+    errorCode === 401 ||
+    errorCode === 403 ||
+    errorMessage.includes('unauthorized') ||
+    errorMessage.includes('forbidden') ||
+    errorMessage.includes('invalid api key') ||
+    errorMessage.includes('invalid access token') ||
+    errorMessage.includes('token expired') ||
+    errorMessage.includes('authentication') ||
+    errorMessage.includes('access denied') ||
+    (errorMessage.includes('token') && errorMessage.includes('expired')) ||
+    // Also check for 504 errors which might be related to auth issues
+    errorCode === 504 ||
+    errorMessage.includes('504') ||
+    errorMessage.includes('gateway timeout')
+  );
+}
+
 class QwenAPI {
   constructor() {
     this.authManager = new QwenAuthManager();
@@ -62,13 +96,9 @@ class QwenAPI {
   }
 
   async chatCompletions(request) {
-    // Get a valid access token
+    // Get a valid access token (automatically refreshes if needed)
+    const accessToken = await this.authManager.getValidAccessToken();
     const credentials = await this.authManager.loadCredentials();
-    if (!credentials || !credentials.access_token) {
-      throw new Error('Not authenticated with Qwen. Please run authentication flow first.');
-    }
-    
-    const accessToken = credentials.access_token;
     const apiEndpoint = await this.getApiEndpoint(credentials);
     
     // Make API call
@@ -93,6 +123,32 @@ class QwenAPI {
       const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
       return response.data;
     } catch (error) {
+      // Check if this is an authentication error that might benefit from a retry
+      if (isAuthError(error)) {
+        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+        try {
+          // Force refresh the token and retry once
+          await this.authManager.performTokenRefresh(credentials);
+          const newAccessToken = await this.authManager.getValidAccessToken();
+          
+          // Retry the request with the new token
+          console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+          const retryHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${newAccessToken}`,
+            'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+          };
+          
+          const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+          console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+          return retryResponse.data;
+        } catch (retryError) {
+          console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
+          // If retry fails, throw the original error with additional context
+          throw new Error(`Qwen API error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+        }
+      }
+      
       if (error.response) {
         // The request was made and the server responded with a status code
         throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
@@ -117,13 +173,9 @@ class QwenAPI {
   }
 
   async createEmbeddings(request) {
-    // Get a valid access token
+    // Get a valid access token (automatically refreshes if needed)
+    const accessToken = await this.authManager.getValidAccessToken();
     const credentials = await this.authManager.loadCredentials();
-    if (!credentials || !credentials.access_token) {
-      throw new Error('Not authenticated with Qwen. Please run authentication flow first.');
-    }
-    
-    const accessToken = credentials.access_token;
     const apiEndpoint = await this.getApiEndpoint(credentials);
     
     // Make API call
@@ -143,6 +195,32 @@ class QwenAPI {
       const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
       return response.data;
     } catch (error) {
+      // Check if this is an authentication error that might benefit from a retry
+      if (isAuthError(error)) {
+        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+        try {
+          // Force refresh the token and retry once
+          await this.authManager.performTokenRefresh(credentials);
+          const newAccessToken = await this.authManager.getValidAccessToken();
+          
+          // Retry the request with the new token
+          console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+          const retryHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${newAccessToken}`,
+            'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+          };
+          
+          const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+          console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+          return retryResponse.data;
+        } catch (retryError) {
+          console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
+          // If retry fails, throw the original error with additional context
+          throw new Error(`Qwen API error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+        }
+      }
+      
       if (error.response) {
         // The request was made and the server responded with a status code
         throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
