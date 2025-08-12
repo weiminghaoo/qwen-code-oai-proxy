@@ -1,18 +1,39 @@
-# Qwen Authentication Deep Dive
+# Qwen Authentication
 
-This document provides a detailed analysis of the authentication system used by the Qwen CLI tool, based on the source code in `qwen-code/`. The proxy server leverages this exact same mechanism.
+This document explains how to authenticate with Qwen for use with the proxy server. The proxy server supports two methods for authentication: using the built-in authentication script or the official `qwen-code` CLI tool.
 
 ## Overview
 
 The authentication system is built on the **OAuth 2.0 Device Authorization Flow**. This is a standard protocol that allows command-line interfaces (CLIs) and other input-constrained devices to obtain access tokens securely.
 
-The entire implementation can be found in the following file:
+The proxy server now includes its own built-in authentication implementation based on the same OAuth 2.0 Device Authorization Flow used by the official `qwen-code` CLI tool.
 
-*   `packages/core/src/qwen/qwenOAuth2.ts`
+## Authentication Methods
+
+### Method 1: Built-in Authentication (Recommended)
+
+The proxy server now includes its own built-in authentication script that implements the OAuth 2.0 Device Authorization Flow:
+
+1. Run `npm run auth` in the project directory
+2. The script will automatically:
+   - Check for existing valid credentials
+   - Attempt to refresh expired credentials if found
+   - Initiate a new authentication flow if needed
+3. You'll be presented with a QR code and URL to authenticate
+4. Scan the QR code or visit the URL to complete authentication
+5. The credentials will be automatically saved to `~/.qwen/oauth_creds.json`
+
+### Method 2: Official qwen-code CLI Tool
+
+You can also use the official `qwen-code` CLI tool from [QwenLM/qwen-code](https://github.com/QwenLM/qwen-code):
+
+1. Install the `qwen-code` CLI tool
+2. Run `qwen-code auth` to authenticate with your Qwen account
+3. The credentials will be saved to `~/.qwen/oauth_creds.json`
 
 ## Authentication Flow
 
-The process works as follows:
+The OAuth 2.0 Device Authorization Flow works as follows:
 
 1.  **Initiation**: The client generates a **PKCE (Proof Key for Code Exchange)** pair, which consists of a `code_verifier` and a `code_challenge`. This is a security measure to prevent authorization code interception attacks.
 
