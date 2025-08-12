@@ -8,7 +8,10 @@
     "dev": "node src/index.js",
     "test": "node test-proxy.js",
     "test:simple": "node test-simple.js",
-    "auth": "node authenticate.js"
+    "auth": "node authenticate.js",
+    "auth:list": "node authenticate.js list",
+    "auth:add": "node authenticate.js add",
+    "auth:remove": "node authenticate.js remove"
   },
   "keywords": [
     "qwen",

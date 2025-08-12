@@ -4,6 +4,97 @@ const { QwenAuthManager } = require('./src/qwen/auth.js');
 const qrcode = require('qrcode-terminal');
 const open = require('open');
 
+async function listAccounts() {
+  console.log('Listing all Qwen accounts...');
+  
+  try {
+    const authManager = new QwenAuthManager();
+    await authManager.loadAllAccounts();
+    
+    const accountIds = authManager.getAccountIds();
+    
+    if (accountIds.length === 0) {
+      console.log('No accounts found.');
+      return;
+    }
+    
+    console.log(`\nFound ${accountIds.length} account(s):\n`);
+    
+    for (const accountId of accountIds) {
+      const credentials = authManager.getAccountCredentials(accountId);
+      const isValid = authManager.isAccountValid(accountId);
+      
+      console.log(`Account ID: ${accountId}`);
+      console.log(`  Status: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+      if (credentials && credentials.expiry_date) {
+        const expiry = new Date(credentials.expiry_date);
+        console.log(`  Expires: ${expiry.toLocaleString()}`);
+      }
+      console.log('');
+    }
+  } catch (error) {
+    console.error('Failed to list accounts:', error.message);
+    process.exit(1);
+  }
+}
+
+async function addAccount(accountId) {
+  console.log(`Adding new Qwen account with ID: ${accountId}...`);
+  
+  try {
+    const authManager = new QwenAuthManager();
+    
+    // Initiate device flow
+    console.log('\nInitiating device flow...');
+    const deviceFlow = await authManager.initiateDeviceFlow();
+    
+    // Display verification URI and user code
+    console.log('\n=== Qwen OAuth Device Authorization ===');
+    console.log('Please visit the following URL to authenticate:');
+    console.log(`\n${deviceFlow.verification_uri_complete}\n`);
+    
+    // Generate and display QR code
+    console.log('Or scan the QR code below:');
+    qrcode.generate(deviceFlow.verification_uri_complete, { small: true }, (qrCode) => {
+      console.log(qrCode);
+    });
+    
+    console.log('User code:', deviceFlow.user_code);
+    console.log('(Press Ctrl+C to cancel)');
+    
+    // Try to open the URL in the browser
+    try {
+      await open(deviceFlow.verification_uri_complete);
+      console.log('\nBrowser opened automatically. If not, please visit the URL above.');
+    } catch (openError) {
+      console.log('\nPlease visit the URL above in your browser to authenticate.');
+    }
+    
+    // Poll for token and save to specific account
+    console.log('\nWaiting for authentication...');
+    const token = await authManager.pollForToken(deviceFlow.device_code, deviceFlow.code_verifier, accountId);
+    
+    console.log(`\n🎉 Authentication successful for account ${accountId}!`);
+    console.log(`Access token saved to ~/.qwen/oauth_creds_${accountId}.json`);
+  } catch (error) {
+    console.error('Authentication failed:', error.message);
+    process.exit(1);
+  }
+}
+
+async function removeAccount(accountId) {
+  console.log(`Removing Qwen account with ID: ${accountId}...`);
+  
+  try {
+    const authManager = new QwenAuthManager();
+    await authManager.removeAccount(accountId);
+    console.log(`\n✅ Account ${accountId} removed successfully!`);
+  } catch (error) {
+    console.error('Failed to remove account:', error.message);
+    process.exit(1);
+  }
+}
+
 async function authenticate() {
   console.log('Starting Qwen authentication flow...');
   
@@ -76,4 +167,37 @@ async function authenticate() {
   }
 }
 
-authenticate();
+// Parse command line arguments
+const args = process.argv.slice(2);
+const command = args[0];
+
+switch (command) {
+  case 'list':
+    listAccounts();
+    break;
+  case 'add':
+    if (!args[1]) {
+      console.error('Please provide an account ID: npm run auth add <account-id>');
+      process.exit(1);
+    }
+    addAccount(args[1]);
+    break;
+  case 'remove':
+    if (!args[1]) {
+      console.error('Please provide an account ID: npm run auth remove <account-id>');
+      process.exit(1);
+    }
+    removeAccount(args[1]);
+    break;
+  case undefined:
+  case '':
+    authenticate();
+    break;
+  default:
+    console.log('Usage: npm run auth [list|add <account-id>|remove <account-id>]');
+    console.log('  list                - List all accounts');
+    console.log('  add <account-id>    - Add a new account with the specified ID');
+    console.log('  remove <account-id> - Remove an existing account with the specified ID');
+    console.log('  (no arguments)      - Authenticate default account');
+    process.exit(1);
+}

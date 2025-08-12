@@ -8,6 +8,8 @@ const qrcode = require('qrcode-terminal');
 // File System Configuration
 const QWEN_DIR = '.qwen';
 const QWEN_CREDENTIAL_FILENAME = 'oauth_creds.json';
+const QWEN_MULTI_ACCOUNT_PREFIX = 'oauth_creds_';
+const QWEN_MULTI_ACCOUNT_SUFFIX = '.json';
 
 // OAuth Configuration (from qwen-code analysis)
 const QWEN_OAUTH_BASE_URL = 'https://chat.qwen.ai';
@@ -49,9 +51,12 @@ function generatePKCEPair() {
 
 class QwenAuthManager {
   constructor() {
-    this.credentialsPath = path.join(process.env.HOME || process.env.USERPROFILE, QWEN_DIR, QWEN_CREDENTIAL_FILENAME);
+    this.qwenDir = path.join(process.env.HOME || process.env.USERPROFILE, QWEN_DIR);
+    this.credentialsPath = path.join(this.qwenDir, QWEN_CREDENTIAL_FILENAME);
     this.credentials = null;
     this.refreshPromise = null;
+    this.accounts = new Map(); // For multi-account support
+    this.currentAccountIndex = 0; // For round-robin account selection
   }
 
   async loadCredentials() {
@@ -67,11 +72,68 @@ class QwenAuthManager {
     }
   }
 
-  async saveCredentials(credentials) {
+  /**
+   * Load all multi-account credentials
+   * @returns {Promise<Map>} Map of account IDs to credentials
+   */
+  async loadAllAccounts() {
+    try {
+      // Clear existing accounts
+      this.accounts.clear();
+      
+      // Read directory to find all credential files
+      const files = await fs.readdir(this.qwenDir);
+      
+      // Filter for multi-account credential files
+      const accountFiles = files.filter(file => 
+        file.startsWith(QWEN_MULTI_ACCOUNT_PREFIX) && 
+        file.endsWith(QWEN_MULTI_ACCOUNT_SUFFIX) &&
+        file !== QWEN_CREDENTIAL_FILENAME
+      );
+      
+      // Load each account
+      for (const file of accountFiles) {
+        try {
+          const accountPath = path.join(this.qwenDir, file);
+          const credentialsData = await fs.readFile(accountPath, 'utf8');
+          const credentials = JSON.parse(credentialsData);
+          
+          // Extract account ID from filename
+          const accountId = file.substring(
+            QWEN_MULTI_ACCOUNT_PREFIX.length,
+            file.length - QWEN_MULTI_ACCOUNT_SUFFIX.length
+          );
+          
+          this.accounts.set(accountId, credentials);
+        } catch (error) {
+          console.warn(`Failed to load account from ${file}:`, error.message);
+        }
+      }
+      
+      return this.accounts;
+    } catch (error) {
+      console.warn('Failed to load multi-account credentials:', error.message);
+      return this.accounts;
+    }
+  }
+
+  async saveCredentials(credentials, accountId = null) {
     try {
       const credString = JSON.stringify(credentials, null, 2);
-      await fs.writeFile(this.credentialsPath, credString);
-      this.credentials = credentials;
+      
+      if (accountId) {
+        // Save to specific account file
+        const accountFilename = `${QWEN_MULTI_ACCOUNT_PREFIX}${accountId}${QWEN_MULTI_ACCOUNT_SUFFIX}`;
+        const accountPath = path.join(this.qwenDir, accountFilename);
+        await fs.writeFile(accountPath, credString);
+        
+        // Update accounts map
+        this.accounts.set(accountId, credentials);
+      } else {
+        // Save to default credentials file
+        await fs.writeFile(this.credentialsPath, credString);
+        this.credentials = credentials;
+      }
     } catch (error) {
       console.error('Error saving credentials:', error.message);
     }
@@ -82,6 +144,54 @@ class QwenAuthManager {
       return false;
     }
     return Date.now() < credentials.expiry_date - TOKEN_REFRESH_BUFFER_MS;
+  }
+
+  /**
+   * Get a list of all account IDs
+   * @returns {string[]} Array of account IDs
+   */
+  getAccountIds() {
+    return Array.from(this.accounts.keys());
+  }
+
+  /**
+   * Get credentials for a specific account
+   * @param {string} accountId - The account ID
+   * @returns {Object|null} The credentials or null if not found
+   */
+  getAccountCredentials(accountId) {
+    return this.accounts.get(accountId) || null;
+  }
+
+  /**
+   * Add a new account
+   * @param {Object} credentials - The account credentials
+   * @param {string} accountId - The account ID
+   */
+  async addAccount(credentials, accountId) {
+    await this.saveCredentials(credentials, accountId);
+  }
+
+  /**
+   * Remove an account
+   * @param {string} accountId - The account ID to remove
+   */
+  async removeAccount(accountId) {
+    try {
+      const accountFilename = `${QWEN_MULTI_ACCOUNT_PREFIX}${accountId}${QWEN_MULTI_ACCOUNT_SUFFIX}`;
+      const accountPath = path.join(this.qwenDir, accountFilename);
+      
+      // Remove file
+      await fs.unlink(accountPath);
+      
+      // Remove from accounts map
+      this.accounts.delete(accountId);
+      
+      console.log(`Account ${accountId} removed successfully`);
+    } catch (error) {
+      console.error(`Error removing account ${accountId}:`, error.message);
+      throw error;
+    }
   }
 
   async refreshAccessToken(credentials) {
@@ -118,6 +228,7 @@ class QwenAuthManager {
         access_token: tokenData.access_token,
         token_type: tokenData.token_type,
         refresh_token: tokenData.refresh_token || credentials.refresh_token,
+        resource_url: tokenData.resource_url || credentials.resource_url, // Preserve or update resource_url
         expiry_date: Date.now() + tokenData.expires_in * 1000,
       }
 
@@ -131,7 +242,7 @@ class QwenAuthManager {
     }
   }
 
-  async getValidAccessToken() {
+  async getValidAccessToken(accountId = null) {
     // If there's already a refresh in progress, wait for it
     if (this.refreshPromise) {
       console.log('\x1b[36m%s\x1b[0m', 'Waiting for ongoing token refresh...');
@@ -139,22 +250,49 @@ class QwenAuthManager {
     }
 
     try {
-      let credentials = await this.loadCredentials();
+      let credentials;
+      
+      if (accountId) {
+        // Get credentials for specific account
+        credentials = this.getAccountCredentials(accountId);
+        if (!credentials) {
+          // Load all accounts if not already loaded
+          await this.loadAllAccounts();
+          credentials = this.getAccountCredentials(accountId);
+        }
+      } else {
+        // Use default credentials
+        credentials = await this.loadCredentials();
+      }
 
       if (!credentials) {
-        throw new Error('No credentials found. Please authenticate with Qwen CLI first.');
+        if (accountId) {
+          throw new Error(`No credentials found for account ${accountId}. Please authenticate this account first.`);
+        } else {
+          throw new Error('No credentials found. Please authenticate with Qwen CLI first.');
+        }
       }
 
       // Check if token is valid
       if (this.isTokenValid(credentials)) {
-        console.log('\x1b[32m%s\x1b[0m', 'Using valid Qwen access token');
+        console.log(accountId ? 
+          `\x1b[32m%s\x1b[0m` : 
+          '\x1b[32m%s\x1b[0m', 
+          accountId ? 
+          `Using valid Qwen access token for account ${accountId}` : 
+          'Using valid Qwen access token');
         return credentials.access_token;
       } else {
-        console.log('\x1b[33m%s\x1b[0m', 'Qwen access token expired or expiring soon, refreshing...');
+        console.log(accountId ? 
+          `\x1b[33m%s\x1b[0m` : 
+          '\x1b[33m%s\x1b[0m', 
+          accountId ? 
+          `Qwen access token for account ${accountId} expired or expiring soon, refreshing...` : 
+          'Qwen access token expired or expiring soon, refreshing...');
       }
 
       // Token needs refresh, start refresh operation
-      this.refreshPromise = this.performTokenRefresh(credentials);
+      this.refreshPromise = this.performTokenRefresh(credentials, accountId);
       
       try {
         const newCredentials = await this.refreshPromise;
@@ -168,13 +306,57 @@ class QwenAuthManager {
     }
   }
 
-  async performTokenRefresh(credentials) {
+  async performTokenRefresh(credentials, accountId = null) {
     try {
       const newCredentials = await this.refreshAccessToken(credentials);
+      
+      // Save to the appropriate account
+      if (accountId) {
+        await this.saveCredentials(newCredentials, accountId);
+      } else {
+        await this.saveCredentials(newCredentials);
+      }
+      
       return newCredentials;
     } catch (error) {
       throw new Error(`${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * Get the next available account for rotation
+   * @returns {Object|null} Object with {accountId, credentials} or null if no accounts available
+   */
+  async getNextAccount() {
+    // Load all accounts if not already loaded
+    if (this.accounts.size === 0) {
+      await this.loadAllAccounts();
+    }
+    
+    const accountIds = this.getAccountIds();
+    
+    if (accountIds.length === 0) {
+      return null;
+    }
+    
+    // Use round-robin selection
+    const accountId = accountIds[this.currentAccountIndex];
+    const credentials = this.getAccountCredentials(accountId);
+    
+    // Update index for next call
+    this.currentAccountIndex = (this.currentAccountIndex + 1) % accountIds.length;
+    
+    return { accountId, credentials };
+  }
+
+  /**
+   * Check if an account has valid credentials
+   * @param {string} accountId - The account ID
+   * @returns {boolean} True if the account has valid credentials
+   */
+  isAccountValid(accountId) {
+    const credentials = this.getAccountCredentials(accountId);
+    return credentials && this.isTokenValid(credentials);
   }
 
   async initiateDeviceFlow() {
@@ -221,7 +403,7 @@ class QwenAuthManager {
     }
   }
 
-  async pollForToken(device_code, code_verifier) {
+  async pollForToken(device_code, code_verifier, accountId = null) {
     let pollInterval = 5000; // 5 seconds
     const maxAttempts = 60; // 5 minutes max
 
@@ -288,10 +470,11 @@ class QwenAuthManager {
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token || undefined,
           token_type: tokenData.token_type,
+          resource_url: tokenData.resource_url || tokenData.endpoint, // Include resource_url if provided
           expiry_date: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : undefined,
         };
 
-        await this.saveCredentials(credentials);
+        await this.saveCredentials(credentials, accountId);
         
         return credentials;
       } catch (error) {

@@ -68,9 +68,66 @@ function isAuthError(error) {
   );
 }
 
+/**
+ * Check if an error is related to quota limits
+ */
+function isQuotaExceededError(error) {
+  if (!error) return false;
+
+  const errorMessage = 
+    error instanceof Error 
+      ? error.message.toLowerCase() 
+      : String(error).toLowerCase();
+
+  // Define a type for errors that might have status or code properties
+  const errorWithCode = error;
+  const errorCode = errorWithCode?.response?.status || errorWithCode?.code;
+
+  return (
+    errorMessage.includes('insufficient_quota') ||
+    errorMessage.includes('free allocated quota exceeded') ||
+    (errorMessage.includes('quota') && errorMessage.includes('exceeded')) ||
+    errorCode === 429
+  );
+}
+
 class QwenAPI {
   constructor() {
     this.authManager = new QwenAuthManager();
+    this.requestCount = new Map(); // Track requests per account
+    this.lastResetDate = new Date().toISOString().split('T')[0]; // Track last reset date (UTC)
+  }
+
+  /**
+   * Reset request counts if we've crossed into a new UTC day
+   */
+  resetRequestCountsIfNeeded() {
+    const today = new Date().toISOString().split('T')[0];
+    if (today !== this.lastResetDate) {
+      this.requestCount.clear();
+      this.lastResetDate = today;
+      console.log('Request counts reset for new UTC day');
+    }
+  }
+
+  /**
+   * Increment request count for an account
+   * @param {string} accountId - The account ID
+   */
+  incrementRequestCount(accountId) {
+    this.resetRequestCountsIfNeeded();
+    const currentCount = this.requestCount.get(accountId) || 0;
+    this.requestCount.set(accountId, currentCount + 1);
+  }
+
+  /**
+   * Get request count for an account
+   * @param {string} accountId - The account ID
+   * @returns {number} The request count
+   */
+  getRequestCount(accountId) {
+    this.resetRequestCountsIfNeeded();
+    return this.requestCount.get(accountId) || 0;
   }
 
   async getApiEndpoint(credentials) {
@@ -97,6 +154,120 @@ class QwenAPI {
   }
 
   async chatCompletions(request) {
+    // Load all accounts for multi-account support
+    await this.authManager.loadAllAccounts();
+    const accountIds = this.authManager.getAccountIds();
+    
+    // If no additional accounts, use default behavior
+    if (accountIds.length === 0) {
+      return this.chatCompletionsSingleAccount(request);
+    }
+    
+    // Try accounts in round-robin fashion until one works or all fail
+    let lastError = null;
+    const maxRetries = accountIds.length;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const accountInfo = await this.authManager.getNextAccount();
+        if (!accountInfo) {
+          // Fall back to default account
+          return this.chatCompletionsSingleAccount(request);
+        }
+        
+        const { accountId, credentials } = accountInfo;
+        
+        // Get a valid access token for this account
+        const accessToken = await this.authManager.getValidAccessToken(accountId);
+        
+        // Get API endpoint
+        const apiEndpoint = await this.getApiEndpoint(credentials);
+        
+        // Make API call
+        const url = `${apiEndpoint}/chat/completions`;
+        const payload = {
+          model: request.model || DEFAULT_MODEL,
+          messages: request.messages,
+          temperature: request.temperature,
+          max_tokens: request.max_tokens,
+          top_p: request.top_p,
+          tools: request.tools,
+          tool_choice: request.tool_choice
+        };
+        
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+        };
+        
+        // Increment request count for this account
+        this.incrementRequestCount(accountId);
+        
+        const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        
+        // Check if this is a quota exceeded error
+        if (isQuotaExceededError(error)) {
+          console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+          // Continue to next account
+          continue;
+        }
+        
+        // Check if this is an authentication error that might benefit from a retry
+        if (isAuthError(error)) {
+          console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+          try {
+            const accountInfo = await this.authManager.getNextAccount();
+            if (accountInfo) {
+              const { accountId, credentials } = accountInfo;
+              // Force refresh the token and retry once
+              await this.authManager.performTokenRefresh(credentials, accountId);
+              const newAccessToken = await this.authManager.getValidAccessToken(accountId);
+              
+              // Retry the request with the new token
+              console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+              const retryHeaders = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${newAccessToken}`,
+                'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+              };
+              
+              // Increment request count for this account
+              this.incrementRequestCount(accountId);
+              
+              const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+              console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+              return retryResponse.data;
+            }
+          } catch (retryError) {
+            console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
+            // If retry fails, continue to next account
+            continue;
+          }
+        }
+        
+        // For other errors, re-throw
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          // The request was made but no response was received
+          throw new Error(`Qwen API request failed: No response received`);
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          throw new Error(`Qwen API request failed: ${error.message}`);
+        }
+      }
+    }
+    
+    // If we get here, all accounts failed
+    throw new Error(`All accounts failed. Last error: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  async chatCompletionsSingleAccount(request) {
     // Get a valid access token (automatically refreshes if needed)
     const accessToken = await this.authManager.getValidAccessToken();
     const credentials = await this.authManager.loadCredentials();
@@ -174,64 +345,168 @@ class QwenAPI {
   }
 
   async createEmbeddings(request) {
-    // Get a valid access token (automatically refreshes if needed)
-    const accessToken = await this.authManager.getValidAccessToken();
-    const credentials = await this.authManager.loadCredentials();
-    const apiEndpoint = await this.getApiEndpoint(credentials);
+    // Load all accounts for multi-account support
+    await this.authManager.loadAllAccounts();
+    const accountIds = this.authManager.getAccountIds();
     
-    // Make API call
-    const url = `${apiEndpoint}/embeddings`;
-    const payload = {
-      model: request.model || 'text-embedding-v1',
-      input: request.input
-    };
-    
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
-    };
-    
-    try {
-      const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
-      return response.data;
-    } catch (error) {
-      // Check if this is an authentication error that might benefit from a retry
-      if (isAuthError(error)) {
-        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+    // If no additional accounts, use default behavior
+    if (accountIds.length === 0) {
+      // Get a valid access token (automatically refreshes if needed)
+      const accessToken = await this.authManager.getValidAccessToken();
+      const credentials = await this.authManager.loadCredentials();
+      const apiEndpoint = await this.getApiEndpoint(credentials);
+      
+      // Make API call
+      const url = `${apiEndpoint}/embeddings`;
+      const payload = {
+        model: request.model || 'text-embedding-v1',
+        input: request.input
+      };
+      
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+      };
+      
+      try {
+        const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
+        return response.data;
+      } catch (error) {
+        // Check if this is an authentication error that might benefit from a retry
+        if (isAuthError(error)) {
+          console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+          try {
+            // Force refresh the token and retry once
+            await this.authManager.performTokenRefresh(credentials);
+            const newAccessToken = await this.authManager.getValidAccessToken();
+            
+            // Retry the request with the new token
+            console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+            const retryHeaders = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${newAccessToken}`,
+              'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+            };
+            
+            const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+            console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+            return retryResponse.data;
+          } catch (retryError) {
+            console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
+            // If retry fails, throw the original error with additional context
+            throw new Error(`Qwen API error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+          }
+        }
+        
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          // The request was made but no response was received
+          throw new Error(`Qwen API request failed: No response received`);
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          throw new Error(`Qwen API request failed: ${error.message}`);
+        }
+      }
+    } else {
+      // Try accounts in round-robin fashion until one works or all fail
+      let lastError = null;
+      const maxRetries = accountIds.length;
+      
+      for (let i = 0; i < maxRetries; i++) {
         try {
-          // Force refresh the token and retry once
-          await this.authManager.performTokenRefresh(credentials);
-          const newAccessToken = await this.authManager.getValidAccessToken();
+          const accountInfo = await this.authManager.getNextAccount();
+          if (!accountInfo) {
+            throw new Error('No valid accounts available');
+          }
           
-          // Retry the request with the new token
-          console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
-          const retryHeaders = {
+          const { accountId, credentials } = accountInfo;
+          
+          // Get a valid access token for this account
+          const accessToken = await this.authManager.getValidAccessToken(accountId);
+          
+          // Get API endpoint
+          const apiEndpoint = await this.getApiEndpoint(credentials);
+          
+          // Make API call
+          const url = `${apiEndpoint}/embeddings`;
+          const payload = {
+            model: request.model || 'text-embedding-v1',
+            input: request.input
+          };
+          
+          const headers = {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${newAccessToken}`,
+            'Authorization': `Bearer ${accessToken}`,
             'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
           };
           
-          const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
-          console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
-          return retryResponse.data;
-        } catch (retryError) {
-          console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
-          // If retry fails, throw the original error with additional context
-          throw new Error(`Qwen API error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+          // Increment request count for this account
+          this.incrementRequestCount(accountId);
+          
+          const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
+          return response.data;
+        } catch (error) {
+          lastError = error;
+          
+          // Check if this is a quota exceeded error
+          if (isQuotaExceededError(error)) {
+            console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+            // Continue to next account
+            continue;
+          }
+          
+          // Check if this is an authentication error that might benefit from a retry
+          if (isAuthError(error)) {
+            console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+            try {
+              const accountInfo = await this.authManager.getNextAccount();
+              if (accountInfo) {
+                const { accountId, credentials } = accountInfo;
+                // Force refresh the token and retry once
+                await this.authManager.performTokenRefresh(credentials, accountId);
+                const newAccessToken = await this.authManager.getValidAccessToken(accountId);
+                
+                // Retry the request with the new token
+                console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+                const retryHeaders = {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${newAccessToken}`,
+                  'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+                };
+                
+                // Increment request count for this account
+                this.incrementRequestCount(accountId);
+                
+                const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+                console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+                return retryResponse.data;
+              }
+            } catch (retryError) {
+              console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
+              // If retry fails, continue to next account
+              continue;
+            }
+          }
+          
+          // For other errors, re-throw
+          if (error.response) {
+            // The request was made and the server responded with a status code
+            throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+          } else if (error.request) {
+            // The request was made but no response was received
+            throw new Error(`Qwen API request failed: No response received`);
+          } else {
+            // Something happened in setting up the request that triggered an Error
+            throw new Error(`Qwen API request failed: ${error.message}`);
+          }
         }
       }
       
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        // The request was made but no response was received
-        throw new Error(`Qwen API request failed: No response received`);
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        throw new Error(`Qwen API request failed: ${error.message}`);
-      }
+      // If we get here, all accounts failed
+      throw new Error(`All accounts failed. Last error: ${lastError?.message || 'Unknown error'}`);
     }
   }
 
@@ -241,111 +516,262 @@ class QwenAPI {
    * @returns {Promise<Stream>} - A stream of SSE events
    */
   async streamChatCompletions(request) {
-    // Get a valid access token (automatically refreshes if needed)
-    const accessToken = await this.authManager.getValidAccessToken();
-    const credentials = await this.authManager.loadCredentials();
-    const apiEndpoint = await this.getApiEndpoint(credentials);
+    // Load all accounts for multi-account support
+    await this.authManager.loadAllAccounts();
+    const accountIds = this.authManager.getAccountIds();
     
-    // Make streaming API call
-    const url = `${apiEndpoint}/chat/completions`;
-    const payload = {
-      model: request.model || DEFAULT_MODEL,
-      messages: request.messages,
-      temperature: request.temperature,
-      max_tokens: request.max_tokens,
-      top_p: request.top_p,
-      tools: request.tools,
-      tool_choice: request.tool_choice,
-      stream: true, // Enable streaming
-      stream_options: { include_usage: true } // Include usage data in final chunk
-    };
-    
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
-      'Accept': 'text/event-stream'
-    };
-    
-    try {
-      // Create a pass-through stream to forward the response
-      const stream = new PassThrough();
+    // If no additional accounts, use default behavior
+    if (accountIds.length === 0) {
+      // Get a valid access token (automatically refreshes if needed)
+      const accessToken = await this.authManager.getValidAccessToken();
+      const credentials = await this.authManager.loadCredentials();
+      const apiEndpoint = await this.getApiEndpoint(credentials);
       
-      // Make the HTTP request with streaming response
-      const response = await axios.post(url, payload, {
-        headers,
-        timeout: 300000, // 5 minute timeout
-        responseType: 'stream'
-      });
+      // Make streaming API call
+      const url = `${apiEndpoint}/chat/completions`;
+      const payload = {
+        model: request.model || DEFAULT_MODEL,
+        messages: request.messages,
+        temperature: request.temperature,
+        max_tokens: request.max_tokens,
+        top_p: request.top_p,
+        tools: request.tools,
+        tool_choice: request.tool_choice,
+        stream: true, // Enable streaming
+        stream_options: { include_usage: true } // Include usage data in final chunk
+      };
       
-      // Pipe the response stream to our pass-through stream
-      response.data.pipe(stream);
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
+        'Accept': 'text/event-stream'
+      };
       
-      // Handle authentication errors during streaming
-      response.data.on('error', async (error) => {
-        if (isAuthError(error)) {
-          console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
-          try {
-            // Force refresh the token
-            await this.authManager.performTokenRefresh(credentials);
-            console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
-          } catch (refreshError) {
-            console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
-            stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+      try {
+        // Create a pass-through stream to forward the response
+        const stream = new PassThrough();
+        
+        // Make the HTTP request with streaming response
+        const response = await axios.post(url, payload, {
+          headers,
+          timeout: 300000, // 5 minute timeout
+          responseType: 'stream'
+        });
+        
+        // Pipe the response stream to our pass-through stream
+        response.data.pipe(stream);
+        
+        // Handle authentication errors during streaming
+        response.data.on('error', async (error) => {
+          if (isAuthError(error)) {
+            console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
+            try {
+              // Force refresh the token
+              await this.authManager.performTokenRefresh(credentials);
+              console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
+            } catch (refreshError) {
+              console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
+              stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+            }
+          } else {
+            stream.emit('error', error);
           }
-        } else {
-          stream.emit('error', error);
+        });
+        
+        return stream;
+      } catch (error) {
+        // Check if this is an authentication error that might benefit from a retry
+        if (isAuthError(error)) {
+          console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+          try {
+            // Force refresh the token and retry once
+            await this.authManager.performTokenRefresh(credentials);
+            const newAccessToken = await this.authManager.getValidAccessToken();
+            
+            // Retry the request with the new token
+            console.log('\x1b[36m%s\x1b[0m', 'Retrying streaming request with refreshed token...');
+            const retryHeaders = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${newAccessToken}`,
+              'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
+              'Accept': 'text/event-stream'
+            };
+            
+            // Create a new pass-through stream for the retry
+            const retryStream = new PassThrough();
+            
+            const retryResponse = await axios.post(url, payload, {
+              headers: retryHeaders,
+              timeout: 300000,
+              responseType: 'stream'
+            });
+            
+            retryResponse.data.pipe(retryStream);
+            console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
+            return retryStream;
+          } catch (retryError) {
+            console.error('\x1b[31m%s\x1b[0m', 'Streaming request failed even after token refresh');
+            // If retry fails, throw the original error with additional context
+            throw new Error(`Qwen API streaming error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+          }
         }
-      });
+        
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          // The request was made but no response was received
+          throw new Error(`Qwen API request failed: No response received`);
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          throw new Error(`Qwen API request failed: ${error.message}`);
+        }
+      }
+    } else {
+      // Try accounts in round-robin fashion until one works or all fail
+      let lastError = null;
+      const maxRetries = accountIds.length;
       
-      return stream;
-    } catch (error) {
-      // Check if this is an authentication error that might benefit from a retry
-      if (isAuthError(error)) {
-        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+      for (let i = 0; i < maxRetries; i++) {
         try {
-          // Force refresh the token and retry once
-          await this.authManager.performTokenRefresh(credentials);
-          const newAccessToken = await this.authManager.getValidAccessToken();
+          const accountInfo = await this.authManager.getNextAccount();
+          if (!accountInfo) {
+            throw new Error('No valid accounts available');
+          }
           
-          // Retry the request with the new token
-          console.log('\x1b[36m%s\x1b[0m', 'Retrying streaming request with refreshed token...');
-          const retryHeaders = {
+          const { accountId, credentials } = accountInfo;
+          
+          // Get a valid access token for this account
+          const accessToken = await this.authManager.getValidAccessToken(accountId);
+          
+          // Get API endpoint
+          const apiEndpoint = await this.getApiEndpoint(credentials);
+          
+          // Make streaming API call
+          const url = `${apiEndpoint}/chat/completions`;
+          const payload = {
+            model: request.model || DEFAULT_MODEL,
+            messages: request.messages,
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            top_p: request.top_p,
+            tools: request.tools,
+            tool_choice: request.tool_choice,
+            stream: true, // Enable streaming
+            stream_options: { include_usage: true } // Include usage data in final chunk
+          };
+          
+          const headers = {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${newAccessToken}`,
+            'Authorization': `Bearer ${accessToken}`,
             'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
             'Accept': 'text/event-stream'
           };
           
-          // Create a new pass-through stream for the retry
-          const retryStream = new PassThrough();
+          // Increment request count for this account
+          this.incrementRequestCount(accountId);
           
-          const retryResponse = await axios.post(url, payload, {
-            headers: retryHeaders,
-            timeout: 300000,
+          // Create a pass-through stream to forward the response
+          const stream = new PassThrough();
+          
+          // Make the HTTP request with streaming response
+          const response = await axios.post(url, payload, {
+            headers,
+            timeout: 300000, // 5 minute timeout
             responseType: 'stream'
           });
           
-          retryResponse.data.pipe(retryStream);
-          console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
-          return retryStream;
-        } catch (retryError) {
-          console.error('\x1b[31m%s\x1b[0m', 'Streaming request failed even after token refresh');
-          // If retry fails, throw the original error with additional context
-          throw new Error(`Qwen API streaming error (after token refresh attempt): ${error.response?.status || 'N/A'} ${JSON.stringify(error.response?.data || error.message)}`);
+          // Pipe the response stream to our pass-through stream
+          response.data.pipe(stream);
+          
+          // Handle authentication errors during streaming
+          response.data.on('error', async (error) => {
+            if (isAuthError(error)) {
+              console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
+              try {
+                // Force refresh the token
+                await this.authManager.performTokenRefresh(credentials, accountId);
+                console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
+              } catch (refreshError) {
+                console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
+                stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+              }
+            } else {
+              stream.emit('error', error);
+            }
+          });
+          
+          return stream;
+        } catch (error) {
+          lastError = error;
+          
+          // Check if this is a quota exceeded error
+          if (isQuotaExceededError(error)) {
+            console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+            // Continue to next account
+            continue;
+          }
+          
+          // Check if this is an authentication error that might benefit from a retry
+          if (isAuthError(error)) {
+            console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+            try {
+              const accountInfo = await this.authManager.getNextAccount();
+              if (accountInfo) {
+                const { accountId, credentials } = accountInfo;
+                // Force refresh the token and retry once
+                await this.authManager.performTokenRefresh(credentials, accountId);
+                const newAccessToken = await this.authManager.getValidAccessToken(accountId);
+                
+                // Retry the request with the new token
+                console.log('\x1b[36m%s\x1b[0m', 'Retrying streaming request with refreshed token...');
+                const retryHeaders = {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${newAccessToken}`,
+                  'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)',
+                  'Accept': 'text/event-stream'
+                };
+                
+                // Increment request count for this account
+                this.incrementRequestCount(accountId);
+                
+                // Create a new pass-through stream for the retry
+                const retryStream = new PassThrough();
+                
+                const retryResponse = await axios.post(url, payload, {
+                  headers: retryHeaders,
+                  timeout: 300000,
+                  responseType: 'stream'
+                });
+                
+                retryResponse.data.pipe(retryStream);
+                console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
+                return retryStream;
+              }
+            } catch (retryError) {
+              console.error('\x1b[31m%s\x1b[0m', 'Streaming request failed even after token refresh');
+              // If retry fails, continue to next account
+              continue;
+            }
+          }
+          
+          // For other errors, re-throw
+          if (error.response) {
+            // The request was made and the server responded with a status code
+            throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
+          } else if (error.request) {
+            // The request was made but no response was received
+            throw new Error(`Qwen API request failed: No response received`);
+          } else {
+            // Something happened in setting up the request that triggered an Error
+            throw new Error(`Qwen API request failed: ${error.message}`);
+          }
         }
       }
       
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        // The request was made but no response was received
-        throw new Error(`Qwen API request failed: No response received`);
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        throw new Error(`Qwen API request failed: ${error.message}`);
-      }
+      // If we get here, all accounts failed
+      throw new Error(`All accounts failed. Last error: ${lastError?.message || 'Unknown error'}`);
     }
   }
 }
