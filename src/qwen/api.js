@@ -212,19 +212,22 @@ class QwenAPI {
       return this.chatCompletionsSingleAccount(request);
     }
     
-    // Try accounts in round-robin fashion until one works or all fail
+    // Start with the first account (sticky selection)
+    let currentAccountIndex = 0;
     let lastError = null;
     const maxRetries = accountIds.length;
     
     for (let i = 0; i < maxRetries; i++) {
       try {
-        const accountInfo = await this.authManager.getNextAccount();
-        if (!accountInfo) {
-          // Fall back to default account
-          return this.chatCompletionsSingleAccount(request);
-        }
+        // Get the current account (sticky until quota error)
+        const accountId = accountIds[currentAccountIndex];
+        const credentials = this.authManager.getAccountCredentials(accountId);
         
-        const { accountId, credentials } = accountInfo;
+        if (!credentials) {
+          // Move to next account if current one is invalid
+          currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+          continue;
+        }
         
         // Show which account we're using
         console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
@@ -265,11 +268,11 @@ class QwenAPI {
         // Check if this is a quota exceeded error
         if (isQuotaExceededError(error)) {
           console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+          // Move to next account for the next request
+          currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
           // Peek at the next account to show which one we're rotating to
-          const nextAccountInfo = this.authManager.peekNextAccount();
-          if (nextAccountInfo) {
-            console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
-          }
+          const nextAccountId = accountIds[currentAccountIndex];
+          console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
           // Continue to next account
           continue;
         }
@@ -469,18 +472,22 @@ class QwenAPI {
         }
       }
     } else {
-      // Try accounts in round-robin fashion until one works or all fail
+      // Start with the first account (sticky selection)
+      let currentAccountIndex = 0;
       let lastError = null;
       const maxRetries = accountIds.length;
       
       for (let i = 0; i < maxRetries; i++) {
         try {
-          const accountInfo = await this.authManager.getNextAccount();
-          if (!accountInfo) {
-            throw new Error('No valid accounts available');
-          }
+          // Get the current account (sticky until quota error)
+          const accountId = accountIds[currentAccountIndex];
+          const credentials = this.authManager.getAccountCredentials(accountId);
           
-          const { accountId, credentials } = accountInfo;
+          if (!credentials) {
+            // Move to next account if current one is invalid
+            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+            continue;
+          }
           
           // Show which account we're using
           console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
@@ -515,11 +522,11 @@ class QwenAPI {
           // Check if this is a quota exceeded error
           if (isQuotaExceededError(error)) {
             console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+            // Move to next account for the next request
+            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
             // Peek at the next account to show which one we're rotating to
-            const nextAccountInfo = this.authManager.peekNextAccount();
-            if (nextAccountInfo) {
-              console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
-            }
+            const nextAccountId = accountIds[currentAccountIndex];
+            console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
             // Continue to next account
             continue;
           }
@@ -528,9 +535,9 @@ class QwenAPI {
           if (isAuthError(error)) {
             console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
             try {
-              const accountInfo = await this.authManager.getNextAccount();
-              if (accountInfo) {
-                const { accountId, credentials } = accountInfo;
+              const accountId = accountIds[currentAccountIndex];
+              const credentials = this.authManager.getAccountCredentials(accountId);
+              if (credentials) {
                 // Force refresh the token and retry once
                 await this.authManager.performTokenRefresh(credentials, accountId);
                 const newAccessToken = await this.authManager.getValidAccessToken(accountId);
@@ -695,18 +702,22 @@ class QwenAPI {
         }
       }
     } else {
-      // Try accounts in round-robin fashion until one works or all fail
+      // Start with the first account (sticky selection)
+      let currentAccountIndex = 0;
       let lastError = null;
       const maxRetries = accountIds.length;
       
       for (let i = 0; i < maxRetries; i++) {
         try {
-          const accountInfo = await this.authManager.getNextAccount();
-          if (!accountInfo) {
-            throw new Error('No valid accounts available');
-          }
+          // Get the current account (sticky until quota error)
+          const accountId = accountIds[currentAccountIndex];
+          const credentials = this.authManager.getAccountCredentials(accountId);
           
-          const { accountId, credentials } = accountInfo;
+          if (!credentials) {
+            // Move to next account if current one is invalid
+            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+            continue;
+          }
           
           // Show which account we're using
           console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
@@ -778,11 +789,11 @@ class QwenAPI {
           // Check if this is a quota exceeded error
           if (isQuotaExceededError(error)) {
             console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+            // Move to next account for the next request
+            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
             // Peek at the next account to show which one we're rotating to
-            const nextAccountInfo = this.authManager.peekNextAccount();
-            if (nextAccountInfo) {
-              console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
-            }
+            const nextAccountId = accountIds[currentAccountIndex];
+            console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
             // Continue to next account
             continue;
           }
@@ -791,9 +802,9 @@ class QwenAPI {
           if (isAuthError(error)) {
             console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
             try {
-              const accountInfo = await this.authManager.getNextAccount();
-              if (accountInfo) {
-                const { accountId, credentials } = accountInfo;
+              const accountId = accountIds[currentAccountIndex];
+              const credentials = this.authManager.getAccountCredentials(accountId);
+              if (credentials) {
                 // Force refresh the token and retry once
                 await this.authManager.performTokenRefresh(credentials, accountId);
                 const newAccessToken = await this.authManager.getValidAccessToken(accountId);
