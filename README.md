@@ -29,6 +29,7 @@ The proxy server can be configured using environment variables. Create a `.env` 
 
 *   `LOG_FILE_LIMIT`: Maximum number of debug log files to keep (default: 20)
 *   `DEBUG_LOG`: Set to `true` to enable debug logging (default: false)
+*   `STREAM`: Set to `true` to enable streaming responses (default: false)
 
 Example `.env` file:
 ```bash
@@ -37,6 +38,9 @@ LOG_FILE_LIMIT=10
 
 # Enable debug logging (log files will be created)
 DEBUG_LOG=true
+
+# Enable streaming responses (disabled by default)
+STREAM=true
 ```
 
 ## Example Usage

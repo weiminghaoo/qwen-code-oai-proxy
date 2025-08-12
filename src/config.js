@@ -6,6 +6,9 @@ module.exports = {
   port: parseInt(process.env.PORT) || 8080,
   host: process.env.HOST || 'localhost',
   
+  // Streaming configuration
+  stream: process.env.STREAM === 'true', // Disable streaming by default, enable only if STREAM=true
+  
   // Qwen OAuth configuration
   qwen: {
     clientId: process.env.QWEN_CLIENT_ID || 'f0304373b74a44d2b584a3fb70ca9e56',

@@ -350,6 +350,31 @@ class QwenAuthManager {
   }
 
   /**
+   * Peek at the next account without consuming it
+   * @returns {Object|null} Object with {accountId, credentials} or null if no accounts available
+   */
+  peekNextAccount() {
+    // Load all accounts if not already loaded
+    if (this.accounts.size === 0) {
+      // Note: This is a synchronous method, so we can't load accounts here
+      // The accounts should already be loaded before calling this method
+      return null;
+    }
+    
+    const accountIds = this.getAccountIds();
+    
+    if (accountIds.length === 0) {
+      return null;
+    }
+    
+    // Use round-robin selection without updating index
+    const accountId = accountIds[this.currentAccountIndex];
+    const credentials = this.getAccountCredentials(accountId);
+    
+    return { accountId, credentials };
+  }
+
+  /**
    * Check if an account has valid credentials
    * @param {string} accountId - The account ID
    * @returns {boolean} True if the account has valid credentials

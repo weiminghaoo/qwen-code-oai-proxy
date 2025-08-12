@@ -27,14 +27,15 @@ class QwenOpenAIProxy {
       // Display token count in terminal
       console.log('\x1b[36m%s\x1b[0m', `Chat completion request received with ${tokenCount} tokens`);
       
-      // Check if streaming is requested
-      const isStreaming = req.body.stream === true;
+      // Check if streaming is requested and enabled
+      const isStreaming = req.body.stream === true && config.stream;
       
       if (isStreaming) {
         // Handle streaming response
         await this.handleStreamingChatCompletion(req, res);
       } else {
         // Handle regular response
+        // If client requested streaming but it's disabled, we still use regular completion
         await this.handleRegularChatCompletion(req, res);
       }
     } catch (error) {
@@ -379,8 +380,34 @@ app.get('/health', (req, res) => {
 const PORT = config.port;
 const HOST = config.host;
 
-app.listen(PORT, HOST, () => {
+app.listen(PORT, HOST, async () => {
   console.log(`Qwen OpenAI Proxy listening on http://${HOST}:${PORT}`);
   console.log(`OpenAI-compatible endpoint: http://${HOST}:${PORT}/v1`);
   console.log(`Authentication endpoint: http://${HOST}:${PORT}/auth/initiate`);
+  
+  // Show available accounts
+  try {
+    await qwenAPI.authManager.loadAllAccounts();
+    const accountIds = qwenAPI.authManager.getAccountIds();
+    
+    if (accountIds.length > 0) {
+      console.log('\n\x1b[36mAvailable accounts:\x1b[0m');
+      for (const accountId of accountIds) {
+        const credentials = qwenAPI.authManager.getAccountCredentials(accountId);
+        const isValid = credentials && qwenAPI.authManager.isTokenValid(credentials);
+        console.log(`  ${accountId}: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+      }
+    } else {
+      // Check if default account exists
+      const defaultCredentials = await qwenAPI.authManager.loadCredentials();
+      if (defaultCredentials) {
+        const isValid = qwenAPI.authManager.isTokenValid(defaultCredentials);
+        console.log(`\n\x1b[36mDefault account: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}\x1b[0m`);
+      } else {
+        console.log('\n\x1b[36mNo accounts configured. Please authenticate first.\x1b[0m');
+      }
+    }
+  } catch (error) {
+    console.log('\n\x1b[33mWarning: Could not load account information\x1b[0m');
+  }
 });

@@ -95,6 +95,81 @@ async function removeAccount(accountId) {
   }
 }
 
+async function checkRequestCounts() {
+  console.log('Checking request counts for all accounts...');
+  
+  try {
+    const { QwenAuthManager } = require('./src/qwen/auth.js');
+    const path = require('path');
+    const { promises: fs } = require('fs');
+    
+    const authManager = new QwenAuthManager();
+    
+    // Load all accounts
+    await authManager.loadAllAccounts();
+    const accountIds = authManager.getAccountIds();
+    
+    if (accountIds.length === 0) {
+      console.log('No accounts found.');
+      return;
+    }
+    
+    console.log(`\nFound ${accountIds.length} account(s):\n`);
+    
+    // Load request counts from persisted file
+    let requestCounts = new Map();
+    const requestCountFile = path.join(authManager.qwenDir, 'request_counts.json');
+    try {
+      const data = await fs.readFile(requestCountFile, 'utf8');
+      const counts = JSON.parse(data);
+      
+      // Load request counts
+      if (counts.requests) {
+        for (const [accountId, count] of Object.entries(counts.requests)) {
+          requestCounts.set(accountId, count);
+        }
+      }
+    } catch (error) {
+      // File doesn't exist or is invalid, continue with empty counts
+    }
+    
+    for (const accountId of accountIds) {
+      const count = requestCounts.get(accountId) || 0;
+      const credentials = authManager.getAccountCredentials(accountId);
+      const isValid = credentials && authManager.isTokenValid(credentials);
+      
+      console.log(`Account ID: ${accountId}`);
+      console.log(`  Status: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+      console.log(`  Requests today: ${count}/2000`);
+      
+      if (credentials && credentials.expiry_date) {
+        const expiry = new Date(credentials.expiry_date);
+        console.log(`  Expires: ${expiry.toLocaleString()}`);
+      }
+      console.log('');
+    }
+    
+    // Also show default account if it exists
+    const defaultCredentials = await authManager.loadCredentials();
+    if (defaultCredentials) {
+      console.log('Default account:');
+      const isValid = authManager.isTokenValid(defaultCredentials);
+      const defaultCount = requestCounts.get('default') || 0;
+      console.log(`  Status: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+      console.log(`  Requests today: ${defaultCount}/2000`);
+      
+      if (defaultCredentials.expiry_date) {
+        const expiry = new Date(defaultCredentials.expiry_date);
+        console.log(`  Expires: ${expiry.toLocaleString()}`);
+      }
+      console.log('');
+    }
+  } catch (error) {
+    console.error('Failed to check request counts:', error.message);
+    process.exit(1);
+  }
+}
+
 async function authenticate() {
   console.log('Starting Qwen authentication flow...');
   
@@ -189,6 +264,9 @@ switch (command) {
     }
     removeAccount(args[1]);
     break;
+  case 'counts':
+    checkRequestCounts();
+    break;
   case undefined:
   case '':
     authenticate();
@@ -198,6 +276,7 @@ switch (command) {
     console.log('  list                - List all accounts');
     console.log('  add <account-id>    - Add a new account with the specified ID');
     console.log('  remove <account-id> - Remove an existing account with the specified ID');
+    console.log('  counts              - Check request counts for all accounts');
     console.log('  (no arguments)      - Authenticate default account');
     process.exit(1);
 }

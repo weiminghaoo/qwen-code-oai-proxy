@@ -1,6 +1,8 @@
 const axios = require('axios');
 const { QwenAuthManager } = require('./auth.js');
 const { PassThrough } = require('stream');
+const path = require('path');
+const { promises: fs } = require('fs');
 
 // Default Qwen configuration
 const DEFAULT_QWEN_API_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -96,6 +98,51 @@ class QwenAPI {
     this.authManager = new QwenAuthManager();
     this.requestCount = new Map(); // Track requests per account
     this.lastResetDate = new Date().toISOString().split('T')[0]; // Track last reset date (UTC)
+    this.requestCountFile = path.join(this.authManager.qwenDir, 'request_counts.json');
+    this.loadRequestCounts();
+  }
+
+  /**
+   * Load request counts from disk
+   */
+  async loadRequestCounts() {
+    try {
+      const data = await fs.readFile(this.requestCountFile, 'utf8');
+      const counts = JSON.parse(data);
+      
+      // Restore last reset date
+      if (counts.lastResetDate) {
+        this.lastResetDate = counts.lastResetDate;
+      }
+      
+      // Restore request counts
+      if (counts.requests) {
+        for (const [accountId, count] of Object.entries(counts.requests)) {
+          this.requestCount.set(accountId, count);
+        }
+      }
+      
+      // Reset counts if we've crossed into a new UTC day
+      this.resetRequestCountsIfNeeded();
+    } catch (error) {
+      // File doesn't exist or is invalid, start with empty counts
+      this.resetRequestCountsIfNeeded();
+    }
+  }
+
+  /**
+   * Save request counts to disk
+   */
+  async saveRequestCounts() {
+    try {
+      const counts = {
+        lastResetDate: this.lastResetDate,
+        requests: Object.fromEntries(this.requestCount)
+      };
+      await fs.writeFile(this.requestCountFile, JSON.stringify(counts, null, 2));
+    } catch (error) {
+      console.warn('Failed to save request counts:', error.message);
+    }
   }
 
   /**
@@ -107,6 +154,7 @@ class QwenAPI {
       this.requestCount.clear();
       this.lastResetDate = today;
       console.log('Request counts reset for new UTC day');
+      this.saveRequestCounts();
     }
   }
 
@@ -114,10 +162,11 @@ class QwenAPI {
    * Increment request count for an account
    * @param {string} accountId - The account ID
    */
-  incrementRequestCount(accountId) {
+  async incrementRequestCount(accountId) {
     this.resetRequestCountsIfNeeded();
     const currentCount = this.requestCount.get(accountId) || 0;
     this.requestCount.set(accountId, currentCount + 1);
+    await this.saveRequestCounts();
   }
 
   /**
@@ -177,6 +226,9 @@ class QwenAPI {
         
         const { accountId, credentials } = accountInfo;
         
+        // Show which account we're using
+        console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
+        
         // Get a valid access token for this account
         const accessToken = await this.authManager.getValidAccessToken(accountId);
         
@@ -202,7 +254,8 @@ class QwenAPI {
         };
         
         // Increment request count for this account
-        this.incrementRequestCount(accountId);
+        await this.incrementRequestCount(accountId);
+        console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId)} today)\x1b[0m`);
         
         const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
         return response.data;
@@ -211,7 +264,12 @@ class QwenAPI {
         
         // Check if this is a quota exceeded error
         if (isQuotaExceededError(error)) {
-          console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+          console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+          // Peek at the next account to show which one we're rotating to
+          const nextAccountInfo = this.authManager.peekNextAccount();
+          if (nextAccountInfo) {
+            console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
+          }
           // Continue to next account
           continue;
         }
@@ -236,7 +294,7 @@ class QwenAPI {
               };
               
               // Increment request count for this account
-              this.incrementRequestCount(accountId);
+              await this.incrementRequestCount(accountId);
               
               const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
               console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
@@ -424,6 +482,9 @@ class QwenAPI {
           
           const { accountId, credentials } = accountInfo;
           
+          // Show which account we're using
+          console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
+          
           // Get a valid access token for this account
           const accessToken = await this.authManager.getValidAccessToken(accountId);
           
@@ -444,7 +505,7 @@ class QwenAPI {
           };
           
           // Increment request count for this account
-          this.incrementRequestCount(accountId);
+          await this.incrementRequestCount(accountId);
           
           const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
           return response.data;
@@ -453,7 +514,12 @@ class QwenAPI {
           
           // Check if this is a quota exceeded error
           if (isQuotaExceededError(error)) {
-            console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+            console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+            // Peek at the next account to show which one we're rotating to
+            const nextAccountInfo = this.authManager.peekNextAccount();
+            if (nextAccountInfo) {
+              console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
+            }
             // Continue to next account
             continue;
           }
@@ -478,7 +544,7 @@ class QwenAPI {
                 };
                 
                 // Increment request count for this account
-                this.incrementRequestCount(accountId);
+                await this.incrementRequestCount(accountId);
                 
                 const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
                 console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
@@ -642,6 +708,9 @@ class QwenAPI {
           
           const { accountId, credentials } = accountInfo;
           
+          // Show which account we're using
+          console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
+          
           // Get a valid access token for this account
           const accessToken = await this.authManager.getValidAccessToken(accountId);
           
@@ -670,7 +739,7 @@ class QwenAPI {
           };
           
           // Increment request count for this account
-          this.incrementRequestCount(accountId);
+          await this.incrementRequestCount(accountId);
           
           // Create a pass-through stream to forward the response
           const stream = new PassThrough();
@@ -708,7 +777,12 @@ class QwenAPI {
           
           // Check if this is a quota exceeded error
           if (isQuotaExceededError(error)) {
-            console.log(`\x1b[33m%s\x1b[0m`, `Account quota exceeded, trying next account...`);
+            console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
+            // Peek at the next account to show which one we're rotating to
+            const nextAccountInfo = this.authManager.peekNextAccount();
+            if (nextAccountInfo) {
+              console.log(`\x1b[33mWill try account ${nextAccountInfo.accountId} next\\x1b[0m`);
+            }
             // Continue to next account
             continue;
           }
@@ -734,7 +808,7 @@ class QwenAPI {
                 };
                 
                 // Increment request count for this account
-                this.incrementRequestCount(accountId);
+                await this.incrementRequestCount(accountId);
                 
                 // Create a new pass-through stream for the retry
                 const retryStream = new PassThrough();
