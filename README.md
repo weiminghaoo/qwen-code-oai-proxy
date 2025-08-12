@@ -23,6 +23,48 @@ Users might face errors or 504 Gateway Timeout issues when using contexts with 1
     ```
 4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`.
 
+## Multi-Account Support
+
+The proxy supports multiple Qwen accounts to overcome the 2,000 requests per day limit per account. Accounts are automatically rotated when quota limits are reached.
+
+### Setting Up Multiple Accounts
+
+1. List existing accounts:
+   ```bash
+   npm run auth:list
+   ```
+
+2. Add a new account:
+   ```bash
+   npm run auth:add <account-id>
+   ```
+   Replace `<account-id>` with a unique identifier for your account (e.g., `account2`, `team-account`, etc.)
+
+3. Remove an account:
+   ```bash
+   npm run auth:remove <account-id>
+   ```
+
+### How Account Rotation Works
+
+- When you have multiple accounts configured, the proxy will automatically rotate between them
+- Each account has a 2,000 request per day limit
+- When an account reaches its limit, Qwen's API will return a quota exceeded error
+- The proxy detects these quota errors and automatically switches to the next available account
+- Request counts are tracked locally and reset daily at UTC midnight
+- You can check request counts for all accounts with:
+  ```bash
+  npm run auth:counts
+  ```
+
+### Account Usage Monitoring
+
+The proxy provides real-time feedback in the terminal:
+- Shows which account is being used for each request
+- Displays current request count for each account
+- Notifies when an account is rotated due to quota limits
+- Indicates which account will be tried next during rotation
+
 ## Configuration
 
 The proxy server can be configured using environment variables. Create a `.env` file in the project root or set the variables directly in your environment.
