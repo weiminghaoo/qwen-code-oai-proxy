@@ -82,6 +82,8 @@ typings/
 # IDEs
 .vscode/
 .idea/
+.serena/
+.claude/
 *.swp
 *.swo
 
