@@ -19,7 +19,7 @@ This indicates that the Qwen API is experiencing timeout issues on their backend
 
 Based on the source code analysis:
 
-1. **Timeout Configuration**: The proxy sets a 5-minute timeout for API requests (300,000 ms) in both chat completions and embeddings endpoints.
+1. **Timeout Configuration**: The proxy sets a 5-minute timeout for API requests (300,000 ms) in the chat completions endpoint.
 
 2. **Streaming Complexity**: Streaming responses require maintaining long-lived connections, which are more susceptible to network interruptions and server-side timeouts.
 

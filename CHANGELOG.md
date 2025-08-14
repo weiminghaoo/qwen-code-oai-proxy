@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Account usage information
   - Quota limit notifications
   - Account rotation status
-- Support for both `/v1/chat/completions` and `/v1/embeddings` endpoints
+- Support for `/v1/chat/completions` endpoint
 - Health check endpoint at `/health`
 - Comprehensive documentation for all features
 

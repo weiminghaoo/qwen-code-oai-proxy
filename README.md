@@ -116,7 +116,6 @@ main();
 ## Supported Endpoints
 
 *   `POST /v1/chat/completions`
-*   `POST /v1/embeddings`
 
 
 ## Tool Calling Support

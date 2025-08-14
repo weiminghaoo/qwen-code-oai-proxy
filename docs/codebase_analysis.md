@@ -85,7 +85,7 @@ The main entry point of the application that:
 - Sets up the Express.js server
 - Configures middleware (CORS, JSON parsing)
 - Initializes Qwen API client and authentication manager
-- Defines API routes (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/auth/*`)
+- Defines API routes (`/v1/chat/completions`, `/v1/models`, `/auth/*`)
 - Implements request handling for chat completions (both streaming and regular)
 - Provides health check endpoint (`/health`)
 
@@ -135,7 +135,7 @@ Qwen API client implementation that:
 - Implements request counting and quota management
 - Manages authentication error detection and retry logic
 - Supports both regular and streaming API calls
-- Provides embeddings API support
+
 - Implements model listing (mock implementation)
 
 #### src/qwen/auth.js
@@ -215,12 +215,7 @@ Main chat completion endpoint:
 - Implements multi-account rotation on quota errors
 - Provides automatic token refresh on authentication errors
 
-#### POST /v1/embeddings
-Embeddings generation endpoint:
-- Supports text embedding generation
-- Handles model selection
-- Implements multi-account rotation on quota errors
-- Provides automatic token refresh on authentication errors
+
 
 #### GET /v1/models
 Models listing endpoint:

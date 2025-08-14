@@ -204,65 +204,7 @@ class QwenOpenAIProxy {
     }
   }
   
-  async handleEmbeddings(req, res) {
-    try {
-      // Count tokens in the request
-      const tokenCount = Array.isArray(req.body.input) 
-        ? req.body.input.reduce((total, text) => total + countTokens(text), 0)
-        : countTokens(req.body.input);
-      
-      // Display token count in terminal
-      console.log('\x1b[36m%s\x1b[0m', `Embeddings request received with ${tokenCount} tokens`);
-      
-      // Call Qwen embeddings API
-      const embeddings = await qwenAPI.createEmbeddings({
-        model: req.body.model || 'text-embedding-v1',
-        input: req.body.input,
-      });
-      
-      // Log the API call
-      const debugFileName = await debugLogger.logApiCall('/v1/embeddings', req, embeddings);
-      
-      // Display token usage if available in response
-      let tokenInfo = '';
-      if (embeddings && embeddings.usage) {
-        const { prompt_tokens, total_tokens } = embeddings.usage;
-        tokenInfo = ` (Prompt: ${prompt_tokens}, Total: ${total_tokens} tokens)`;
-      }
-      
-      // Print success message with debug file info in green
-      if (debugFileName) {
-        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully${tokenInfo}. Debug log saved to: ${debugFileName}`);
-      } else {
-        console.log('\x1b[32m%s\x1b[0m', `Embeddings request processed successfully${tokenInfo}.`);
-      }
-      
-      res.json(embeddings);
-    } catch (error) {
-      // Log the API call with error
-      await debugLogger.logApiCall('/v1/embeddings', req, null, error);
-      
-      // Print error message in red
-      console.error('\x1b[31m%s\x1b[0m', `Error processing embeddings request: ${error.message}`);
-      
-      // Handle authentication errors
-      if (error.message.includes('Not authenticated') || error.message.includes('access token')) {
-        return res.status(401).json({
-          error: {
-            message: 'Not authenticated with Qwen. Please authenticate first.',
-            type: 'authentication_error'
-          }
-        });
-      }
-      
-      res.status(500).json({
-        error: {
-          message: error.message,
-          type: 'internal_server_error'
-        }
-      });
-    }
-  }
+  
   
   async handleAuthInitiate(req, res) {
     try {
@@ -366,7 +308,6 @@ const proxy = new QwenOpenAIProxy();
 // Routes
 app.post('/v1/chat/completions', (req, res) => proxy.handleChatCompletion(req, res));
 app.get('/v1/models', (req, res) => proxy.handleModels(req, res));
-app.post('/v1/embeddings', (req, res) => proxy.handleEmbeddings(req, res));
 
 // Authentication routes
 app.post('/auth/initiate', (req, res) => proxy.handleAuthInitiate(req, res));

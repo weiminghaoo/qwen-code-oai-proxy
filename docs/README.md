@@ -30,7 +30,7 @@ OpenAI Format      Translation Layer      Qwen Models
 
 2.  **Authentication Management**: The proxy is designed to be user-friendly by automatically using the same authentication credentials as the official Qwen CLI tool. It reads the `oauth_creds.json` file, uses the access token, and handles token refreshes automatically. This means that if a user is already logged into the Qwen CLI, the proxy works out-of-the-box without requiring a separate login. Users can authenticate using either the official `qwen-code` CLI tool or the proxy's built-in authentication script with QR code support. For a detailed explanation of the authentication process, see `authentication.md` and `qr-authentication.md`.
 
-3.  **Server Implementation**: The proxy is built as a Node.js server using the Express.js framework. It exposes the necessary OpenAI-compatible endpoints, such as `/v1/chat/completions` and `/v1/embeddings`.
+3.  **Server Implementation**: The proxy is built as a Node.js server using the Express.js framework. It exposes the necessary OpenAI-compatible endpoints, such as `/v1/chat/completions`.
 
 ## Architecture
 
@@ -40,14 +40,13 @@ OpenAI Format      Translation Layer      Qwen Models
 
 2.  **Authentication Management**: The proxy is designed to be user-friendly by automatically using the same authentication credentials as the official Qwen CLI tool. It reads the `oauth_creds.json` file, uses the access token, and handles token refreshes automatically. This means that if a user is already logged into the Qwen CLI, the proxy works out-of-the-box without requiring a separate login. Users can authenticate using either the official `qwen-code` CLI tool or the proxy's built-in authentication script with QR code support. For a detailed explanation of the authentication process, see `authentication.md` and `qr-authentication.md`.
 
-3.  **Server Implementation**: The proxy is built as a Node.js server using the Express.js framework. It exposes the necessary OpenAI-compatible endpoints, such as `/v1/chat/completions` and `/v1/embeddings`.
+3.  **Server Implementation**: The proxy is built as a Node.js server using the Express.js framework. It exposes the necessary OpenAI-compatible endpoints, such as `/v1/chat/completions`.
 
 ## Supported Endpoints
 
 Based on the implementation in `src/index.js`, the proxy supports the following endpoints:
 - `POST /v1/chat/completions` - Chat completions with streaming support
 - `GET /v1/models` - List available models (returns mock data)
-- `POST /v1/embeddings` - Text embeddings generation
 - `GET /health` - Health check endpoint
 - `POST /auth/initiate` - Authentication initiation endpoint
 - `POST /auth/poll` - Authentication polling endpoint
