@@ -115,6 +115,63 @@ main();
 *   `POST /v1/embeddings`
 
 
+## Tool Calling Support
+
+This proxy server supports tool calling functionality, allowing you to use it with tools like opencode and crush.
+
+### opencode Configuration
+
+To use with opencode, add the following to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "myprovider": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "proxy",
+      "options": {
+        "baseURL": "http://localhost:8080/v1"
+      },
+      "models": {
+        "qwen3-coder-plus": {
+          "name": "qwen3"
+        }
+      }
+    }
+  }
+}
+```
+
+### crush Configuration
+
+To use with crush, add the following to `~/.config/crush/crush.json`:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "proxy": {
+      "type": "openai",
+      "base_url": "http://localhost:8080/v1",
+      "api_key": "",
+      "models": [
+        {
+          "id": "qwen3-coder-plus",
+          "name": "qwen3-coder-plus",
+          "cost_per_1m_in": 0.0,
+          "cost_per_1m_out": 0.0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "context_window": 150000,
+          "default_max_tokens": 64000
+        }
+      ]
+    }
+  }
+}
+```
+
 ## Token Counting
 
 The proxy now displays token counts in the terminal for each request, showing both input tokens and API-returned usage statistics (prompt, completion, and total tokens).
