@@ -326,7 +326,7 @@ app.listen(PORT, HOST, async () => {
   console.log(`OpenAI-compatible endpoint: http://${HOST}:${PORT}/v1`);
   console.log(`Authentication endpoint: http://${HOST}:${PORT}/auth/initiate`);
   
-  // Show available accounts
+  // Show available accounts and try to refresh expired ones
   try {
     await qwenAPI.authManager.loadAllAccounts();
     const accountIds = qwenAPI.authManager.getAccountIds();
@@ -336,14 +336,42 @@ app.listen(PORT, HOST, async () => {
       for (const accountId of accountIds) {
         const credentials = qwenAPI.authManager.getAccountCredentials(accountId);
         const isValid = credentials && qwenAPI.authManager.isTokenValid(credentials);
-        console.log(`  ${accountId}: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+        
+        if (!isValid && credentials) {
+          // Try to refresh the token
+          console.log(`\x1b[33mAttempting to refresh token for account ${accountId}...\x1b[0m`);
+          try {
+            const refreshedCredentials = await qwenAPI.authManager.performTokenRefresh(credentials, accountId);
+            console.log(`\x1b[32m✅ Token refreshed successfully for account ${accountId}\x1b[0m`);
+            console.log(`  ${accountId}: ✅ Valid`);
+          } catch (refreshError) {
+            console.log(`\x1b[31m❌ Failed to refresh token for account ${accountId}: ${refreshError.message}\x1b[0m`);
+            console.log(`  ${accountId}: ❌ Invalid/Expired`);
+          }
+        } else {
+          console.log(`  ${accountId}: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+        }
       }
     } else {
       // Check if default account exists
       const defaultCredentials = await qwenAPI.authManager.loadCredentials();
       if (defaultCredentials) {
         const isValid = qwenAPI.authManager.isTokenValid(defaultCredentials);
-        console.log(`\n\x1b[36mDefault account: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}\x1b[0m`);
+        
+        if (!isValid) {
+          // Try to refresh the token
+          console.log(`\x1b[33mAttempting to refresh token for default account...\x1b[0m`);
+          try {
+            const refreshedCredentials = await qwenAPI.authManager.performTokenRefresh(defaultCredentials);
+            console.log(`\x1b[32m✅ Token refreshed successfully for default account\x1b[0m`);
+            console.log(`\n\x1b[36mDefault account: ✅ Valid\x1b[0m`);
+          } catch (refreshError) {
+            console.log(`\x1b[31m❌ Failed to refresh token for default account: ${refreshError.message}\x1b[0m`);
+            console.log(`\n\x1b[36mDefault account: ❌ Invalid/Expired\x1b[0m`);
+          }
+        } else {
+          console.log(`\n\x1b[36mDefault account: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}\x1b[0m`);
+        }
       } else {
         console.log('\n\x1b[36mNo accounts configured. Please authenticate first.\x1b[0m');
       }

@@ -108,6 +108,9 @@ temp/
 .qwen/
 *.tmp
 
+# Crush specific
+.crush/
+
 # Binaries
 .bin/
 
