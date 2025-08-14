@@ -1,6 +1,8 @@
 # Qwen OpenAI-Compatible Proxy Server
 
-A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint.
+
+A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint. Has tool calling and stream  
+Works with opendcode and crush 
 
 ## Important Notes
 
