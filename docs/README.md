@@ -45,7 +45,7 @@ OpenAI Format      Translation Layer      Qwen Models
 ## Supported Endpoints
 
 Based on the implementation in `src/index.js`, the proxy supports the following endpoints:
-- `POST /v1/chat/completions` - Chat completions with streaming support
+- `POST /v1/chat/completions` - Chat completions with streaming support and full temperature control
 - `GET /v1/models` - List available models (returns mock data)
 - `GET /health` - Health check endpoint
 - `POST /auth/initiate` - Authentication initiation endpoint
@@ -64,6 +64,12 @@ Based on the implementation in `src/index.js`, the proxy supports the following 
 - API-returned token usage statistics (prompt, completion, total)
 - Automatic context window management
 - Proactive token limit handling
+
+### Temperature Control
+- Full support for OpenAI-compatible temperature parameter
+- Values from 0.0 (deterministic) to 2.0 (random)
+- Direct pass-through to Qwen API for native behavior
+- For detailed information, see `temperature-settings.md`
 
 ### Error Handling
 - Automatic retry for authentication errors
@@ -85,6 +91,8 @@ The proxy server can be configured using environment variables. Create a `.env` 
 - `DEBUG_LOG`: Set to `true` to enable debug logging (default: false)
 - `HOST`: Server host (default: localhost)
 - `PORT`: Server port (default: 8080)
+
+For information about temperature settings and other model parameters, see `temperature-settings.md`.
 
 ## Token Limits and Performance
 

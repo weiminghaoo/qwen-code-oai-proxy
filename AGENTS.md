@@ -1,6 +1,7 @@
 # Qwen Project Context for AI Interactions
 
 ## Project Overview
+ must first read the ./docs/README.md To undertsadn the goal of the porject . the qwen-code cli dir is ./qwen-code . its being added to git ignore to not push in github. 
 This project is a Qwen-to-OpenAI API proxy server that allows users to interact with Qwen's API using OpenAI-compatible endpoints. Key features include:
 - Multi-account support with automatic rotation to handle request quotas
 - QR code authentication flow
@@ -54,3 +55,4 @@ git diff --name-status HEAD~10 | grep "^M" | grep -E "(package\.json|README|conf
 - `authenticate.js` - CLI tool for account management
 - `src/qwen/` - Qwen-specific API and authentication logic
 - `src/utils/` - Utility functions like logging and token counting
+- `qwen-code/`  this is the dir for the qwen-code cli souce code . read this when user asks to look into the source code of qwen cli . 
