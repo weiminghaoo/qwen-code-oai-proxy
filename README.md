@@ -1,8 +1,6 @@
-# Qwen OpenAI-Compatible Proxy Server
-
+# Qwen OpenAI-Compatible Proxy Server - Works with opencode , crush ,  claude code router ,  roo code , cline mostly everything 
 
 A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint. Has tool calling and stream  
-Works with opendcode and crush 
 
 ## Important Notes
 
@@ -24,6 +22,9 @@ Users might face errors or 504 Gateway Timeout issues when using contexts with 1
     npm start
     ```
 4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`.
+
+
+5. API key ? Random doesn't matter .
 
 ## Multi-Account Support
 
@@ -178,6 +179,39 @@ To use with crush, add the following to `~/.config/crush/crush.json`:
 ```
 
 **Note**: For crush to work properly with streaming responses, you need to enable streaming in the proxy server by setting `STREAM=true` in your `.env` file.
+
+### Claude code Router 
+```json
+{
+  "LOG": false,
+  "Providers": [
+    {
+      "name": "qwen-code",
+      "api_base_url": "http://localhost:8080/v1/chat/completions/",
+      "api_key": "wdadwa-random-stuff",
+      "models": ["qwen3-coder-plus"],
+      "transformer": {
+        "use": [
+          [
+            "maxtoken",
+            {
+              "max_tokens": 65536
+            }
+          ],
+          "enhancetool",
+          "cleancache"
+        ]
+      }
+    }
+  ],
+  "Router": {
+    "default": "qwen-code,qwen3-coder-plus"
+  }
+}
+```
+
+
+
 
 ## Token Counting
 
