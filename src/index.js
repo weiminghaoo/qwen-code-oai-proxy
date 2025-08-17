@@ -331,12 +331,19 @@ app.listen(PORT, HOST, async () => {
     await qwenAPI.authManager.loadAllAccounts();
     const accountIds = qwenAPI.authManager.getAccountIds();
     
+    // Show default account if configured
+    const defaultAccount = config.defaultAccount;
+    if (defaultAccount) {
+      console.log(`\n\x1b[36mDefault account configured: ${defaultAccount}\x1b[0m`);
+    }
+    
     if (accountIds.length > 0) {
       console.log('\n\x1b[36mAvailable accounts:\x1b[0m');
       for (const accountId of accountIds) {
         const credentials = qwenAPI.authManager.getAccountCredentials(accountId);
         const isValid = credentials && qwenAPI.authManager.isTokenValid(credentials);
-        console.log(`  ${accountId}: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
+        const isDefault = accountId === defaultAccount ? ' (default)' : '';
+        console.log(`  ${accountId}${isDefault}: ${isValid ? '✅ Valid' : '❌ Invalid/Expired'}`);
       }
       console.log('\n\x1b[33mNote: Try using the proxy to make sure accounts are not invalid\x1b[0m');
     } else {

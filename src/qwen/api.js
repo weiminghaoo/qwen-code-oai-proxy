@@ -240,8 +240,13 @@ class QwenAPI {
       return this.chatCompletionsSingleAccount(request);
     }
     
-    // Start with the first account (sticky selection)
+    // Start with the default account if specified, otherwise start with the first account
     let currentAccountIndex = 0;
+    const defaultAccount = require('../config.js').defaultAccount;
+    if (defaultAccount && accountIds.includes(defaultAccount)) {
+      currentAccountIndex = accountIds.indexOf(defaultAccount);
+      console.log(`\x1b[36mUsing default account: ${defaultAccount}\x1b[0m`);
+    }
     let lastError = null;
     const maxRetries = accountIds.length;
     
@@ -589,8 +594,13 @@ class QwenAPI {
         }
       }
     } else {
-      // Start with the first account (sticky selection)
+      // Start with the default account if specified, otherwise start with the first account
       let currentAccountIndex = 0;
+      const defaultAccount = require('../config.js').defaultAccount;
+      if (defaultAccount && accountIds.includes(defaultAccount)) {
+        currentAccountIndex = accountIds.indexOf(defaultAccount);
+        console.log(`\x1b[36mUsing default account: ${defaultAccount}\x1b[0m`);
+      }
       let lastError = null;
       const maxRetries = accountIds.length;
       
