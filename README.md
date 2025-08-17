@@ -54,6 +54,7 @@ The proxy supports multiple Qwen accounts to overcome the 2,000 requests per day
 - Each account has a 2,000 request per day limit
 - When an account reaches its limit, Qwen's API will return a quota exceeded error
 - The proxy detects these quota errors and automatically switches to the next available account
+- If a DEFAULT_ACCOUNT is configured, the proxy will use that account first before rotating to others
 - Request counts are tracked locally and reset daily at UTC midnight
 - You can check request counts for all accounts with:
   ```bash
@@ -67,6 +68,8 @@ The proxy provides real-time feedback in the terminal:
 - Displays current request count for each account
 - Notifies when an account is rotated due to quota limits
 - Indicates which account will be tried next during rotation
+- Shows which account is configured as the default account on server startup
+- Marks the default account in the account list display
 
 ## Configuration
 
@@ -76,6 +79,9 @@ The proxy server can be configured using environment variables. Create a `.env` 
 *   `DEBUG_LOG`: Set to `true` to enable debug logging (default: false)
 *   `STREAM`: Set to `true` to enable streaming responses (default: false)
     *   **Important**: Set this to `true` when using tools like opencode or crush that require streaming responses
+*   `DEFAULT_ACCOUNT`: Specify which account the proxy should use by default (when using multi-account setup)
+    *   Should match the name used when adding an account with `npm run auth add <name>`
+    *   If not set or invalid, the proxy will use the first available account
 
 Example `.env` file:
 ```bash
@@ -88,6 +94,10 @@ DEBUG_LOG=true
 # Enable streaming responses (disabled by default)
 # Required for tools like opencode and crush
 STREAM=true
+
+# Specify which account to use by default (when using multi-account setup)
+# Should match the name used when adding an account with 'npm run auth add <name>'
+DEFAULT_ACCOUNT=my-primary-account
 ```
 
 ## Example Usage
@@ -218,3 +228,5 @@ To use with crush, add the following to `~/.config/crush/crush.json`:
 The proxy now displays token counts in the terminal for each request, showing both input tokens and API-returned usage statistics (prompt, completion, and total tokens).
 
 For more detailed documentation, see the `docs/` directory.
+
+For information about configuring a default account, see `docs/default-account.md`.
