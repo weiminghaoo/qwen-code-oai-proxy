@@ -97,6 +97,7 @@ class QwenAPI {
   constructor() {
     this.authManager = new QwenAuthManager();
     this.requestCount = new Map(); // Track requests per account
+    this.authErrorCount = new Map(); // Track consecutive auth errors per account
     this.lastResetDate = new Date().toISOString().split('T')[0]; // Track last reset date (UTC)
     this.requestCountFile = path.join(this.authManager.qwenDir, 'request_counts.json');
     this.loadRequestCounts();
@@ -177,6 +178,33 @@ class QwenAPI {
   getRequestCount(accountId) {
     this.resetRequestCountsIfNeeded();
     return this.requestCount.get(accountId) || 0;
+  }
+
+  /**
+   * Increment auth error count for an account
+   * @param {string} accountId - The account ID
+   */
+  incrementAuthErrorCount(accountId) {
+    const currentCount = this.authErrorCount.get(accountId) || 0;
+    this.authErrorCount.set(accountId, currentCount + 1);
+    return currentCount + 1;
+  }
+
+  /**
+   * Reset auth error count for an account (when a successful request is made)
+   * @param {string} accountId - The account ID
+   */
+  resetAuthErrorCount(accountId) {
+    this.authErrorCount.set(accountId, 0);
+  }
+
+  /**
+   * Get auth error count for an account
+   * @param {string} accountId - The account ID
+   * @returns {number} The auth error count
+   */
+  getAuthErrorCount(accountId) {
+    return this.authErrorCount.get(accountId) || 0;
   }
 
   async getApiEndpoint(credentials) {
@@ -261,6 +289,8 @@ class QwenAPI {
         console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId)} today)\x1b[0m`);
         
         const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
+        // Reset auth error count on successful request
+        this.resetAuthErrorCount(accountId);
         return response.data;
       } catch (error) {
         lastError = error;
@@ -279,30 +309,42 @@ class QwenAPI {
         
         // Check if this is an authentication error that might benefit from a retry
         if (isAuthError(error)) {
-          console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+          // Increment auth error count for this account
+          const authErrorCount = this.incrementAuthErrorCount(accountId);
+          console.log(`\x1b[33mDetected auth error (${error.response?.status || 'N/A'}) for account ${accountId} (consecutive count: ${authErrorCount})\x1b[0m`);
+          
+          // If we've had 3 consecutive auth errors, rotate to next account
+          if (authErrorCount >= 3) {
+            console.log(`\x1b[33mAccount ${accountId} has had ${authErrorCount} consecutive auth errors, rotating to next account...\\x1b[0m`);
+            // Move to next account for the next request
+            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+            // Peek at the next account to show which one we're rotating to
+            const nextAccountId = accountIds[currentAccountIndex];
+            console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
+            // Continue to next account
+            continue;
+          }
+          
+          // Try token refresh for auth errors (less than 3 consecutive)
+          console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh and retry...`);
           try {
-            const accountInfo = await this.authManager.getNextAccount();
-            if (accountInfo) {
-              const { accountId, credentials } = accountInfo;
-              // Force refresh the token and retry once
-              await this.authManager.performTokenRefresh(credentials, accountId);
-              const newAccessToken = await this.authManager.getValidAccessToken(accountId);
-              
-              // Retry the request with the new token
-              console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
-              const retryHeaders = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${newAccessToken}`,
-                'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
-              };
-              
-              // Increment request count for this account
-              await this.incrementRequestCount(accountId);
-              
-              const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
-              console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
-              return retryResponse.data;
-            }
+            // Force refresh the token and retry once
+            await this.authManager.performTokenRefresh(credentials, accountId);
+            const newAccessToken = await this.authManager.getValidAccessToken(accountId);
+            
+            // Retry the request with the new token
+            console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
+            const retryHeaders = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${newAccessToken}`,
+              'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
+            };
+            
+            const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
+            console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+            // Reset auth error count on successful request
+            this.resetAuthErrorCount(accountId);
+            return retryResponse.data;
           } catch (retryError) {
             console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
             // If retry fails, continue to next account
@@ -354,11 +396,17 @@ class QwenAPI {
     
     try {
       const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
+      // Reset auth error count on successful request (for consistency, even though we don't rotate)
+      this.resetAuthErrorCount('default');
       return response.data;
     } catch (error) {
       // Check if this is an authentication error that might benefit from a retry
       if (isAuthError(error)) {
-        console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+        // Increment auth error count (for tracking, even though we can't rotate)
+        const authErrorCount = this.incrementAuthErrorCount('default');
+        console.log(`\x1b[33mDetected auth error (${error.response?.status || 'N/A'}) (consecutive count: ${authErrorCount})\x1b[0m`);
+        
+        console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh and retry...`);
         try {
           // Force refresh the token and retry once
           await this.authManager.performTokenRefresh(credentials);
@@ -374,6 +422,8 @@ class QwenAPI {
           
           const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
           console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
+          // Reset auth error count on successful request
+          this.resetAuthErrorCount('default');
           return retryResponse.data;
         } catch (retryError) {
           console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
@@ -459,10 +509,17 @@ class QwenAPI {
         // Pipe the response stream to our pass-through stream
         response.data.pipe(stream);
         
+        // Reset auth error count on successful request start
+        this.resetAuthErrorCount('default');
+        
         // Handle authentication errors during streaming
         response.data.on('error', async (error) => {
           if (isAuthError(error)) {
-            console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
+            // Increment auth error count (for tracking, even though we can't rotate)
+            const authErrorCount = this.incrementAuthErrorCount('default');
+            console.log(`\x1b[33mDetected auth error during streaming (${error.response?.status || 'N/A'}) (consecutive count: ${authErrorCount})\x1b[0m`);
+            
+            console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh during streaming...`);
             try {
               // Force refresh the token
               await this.authManager.performTokenRefresh(credentials);
@@ -480,7 +537,11 @@ class QwenAPI {
       } catch (error) {
         // Check if this is an authentication error that might benefit from a retry
         if (isAuthError(error)) {
-          console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+          // Increment auth error count (for tracking, even though we can't rotate)
+          const authErrorCount = this.incrementAuthErrorCount('default');
+          console.log(`\x1b[33mDetected auth error (${error.response?.status || 'N/A'}) (consecutive count: ${authErrorCount})\x1b[0m`);
+          
+          console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh and retry...`);
           try {
             // Force refresh the token and retry once
             await this.authManager.performTokenRefresh(credentials);
@@ -506,6 +567,8 @@ class QwenAPI {
             
             retryResponse.data.pipe(retryStream);
             console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
+            // Reset auth error count on successful request
+            this.resetAuthErrorCount('default');
             return retryStream;
           } catch (retryError) {
             console.error('\x1b[31m%s\x1b[0m', 'Streaming request failed even after token refresh');
@@ -589,17 +652,30 @@ class QwenAPI {
           // Pipe the response stream to our pass-through stream
           response.data.pipe(stream);
           
+          // Reset auth error count on successful request start
+          this.resetAuthErrorCount(accountId);
+          
           // Handle authentication errors during streaming
           response.data.on('error', async (error) => {
             if (isAuthError(error)) {
-              console.log('\x1b[33m%s\x1b[0m', `Detected auth error during streaming (${error.response?.status || 'N/A'}), attempting token refresh...`);
-              try {
-                // Force refresh the token
-                await this.authManager.performTokenRefresh(credentials, accountId);
-                console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
-              } catch (refreshError) {
-                console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
-                stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+              // Increment auth error count for this account
+              const authErrorCount = this.incrementAuthErrorCount(accountId);
+              console.log(`\x1b[33mDetected auth error during streaming (${error.response?.status || 'N/A'}) for account ${accountId} (consecutive count: ${authErrorCount})\x1b[0m`);
+              
+              // If we've had 3 consecutive auth errors, emit an error to trigger rotation
+              if (authErrorCount >= 3) {
+                console.log(`\x1b[33mAccount ${accountId} has had ${authErrorCount} consecutive auth errors during streaming, triggering rotation...\\x1b[0m`);
+                stream.emit('error', new Error(`Account ${accountId} has consecutive auth errors requiring rotation`));
+              } else {
+                console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh during streaming...`);
+                try {
+                  // Force refresh the token
+                  await this.authManager.performTokenRefresh(credentials, accountId);
+                  console.log('\x1b[32m%s\x1b[0m', 'Token refreshed successfully during streaming');
+                } catch (refreshError) {
+                  console.error('\x1b[31m%s\x1b[0m', 'Token refresh failed during streaming');
+                  stream.emit('error', new Error(`Qwen API auth error during streaming: ${error.message}`));
+                }
               }
             } else {
               stream.emit('error', error);
@@ -624,9 +700,28 @@ class QwenAPI {
           
           // Check if this is an authentication error that might benefit from a retry
           if (isAuthError(error)) {
-            console.log('\x1b[33m%s\x1b[0m', `Detected auth error (${error.response?.status || 'N/A'}), attempting token refresh and retry...`);
+            // Get current account info
+            const accountId = accountIds[currentAccountIndex];
+            
+            // Increment auth error count for this account
+            const authErrorCount = this.incrementAuthErrorCount(accountId);
+            console.log(`\x1b[33mDetected auth error (${error.response?.status || 'N/A'}) for account ${accountId} (consecutive count: ${authErrorCount})\x1b[0m`);
+            
+            // If we've had 3 consecutive auth errors, rotate to next account
+            if (authErrorCount >= 3) {
+              console.log(`\x1b[33mAccount ${accountId} has had ${authErrorCount} consecutive auth errors, rotating to next account...\\x1b[0m`);
+              // Move to next account for the next request
+              currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+              // Peek at the next account to show which one we're rotating to
+              const nextAccountId = accountIds[currentAccountIndex];
+              console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
+              // Continue to next account
+              continue;
+            }
+            
+            // Try token refresh for auth errors (less than 3 consecutive)
+            console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh and retry...`);
             try {
-              const accountId = accountIds[currentAccountIndex];
               const credentials = this.authManager.getAccountCredentials(accountId);
               if (credentials) {
                 // Force refresh the token and retry once
@@ -642,9 +737,6 @@ class QwenAPI {
                   'Accept': 'text/event-stream'
                 };
                 
-                // Increment request count for this account
-                await this.incrementRequestCount(accountId);
-                
                 // Create a new pass-through stream for the retry
                 const retryStream = new PassThrough();
                 
@@ -656,6 +748,8 @@ class QwenAPI {
                 
                 retryResponse.data.pipe(retryStream);
                 console.log('\x1b[32m%s\x1b[0m', 'Streaming request succeeded after token refresh');
+                // Reset auth error count on successful request
+                this.resetAuthErrorCount(accountId);
                 return retryStream;
               }
             } catch (retryError) {

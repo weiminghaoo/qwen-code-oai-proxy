@@ -122,3 +122,6 @@ test-proxy.js
 
 # Debug logs
 debug/
+
+# LLM managed files
+.llm/
