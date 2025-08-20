@@ -1,11 +1,10 @@
-# Qwen OpenAI-Compatible Proxy Server - Works with opencode , crush ,  claude code router ,  roo code , cline mostly everything 
+# Qwen OpenAI-Compatible Proxy Server - Works with opencode, crush, claude code router, roo code, cline mostly everything
 
-A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint. Has tool calling and stream  
+A proxy server that exposes Qwen models through an OpenAI-compatible API endpoint. Has tool calling and streaming support.
 
 ## Important Notes
 
-Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models. Qwen code it self tends to also break down and get stuck on this limit . 
-
+Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models. Qwen code itself tends to also break down and get stuck on this limit.
 
 ## Quick Start
 
@@ -24,7 +23,7 @@ Users might face errors or 504 Gateway Timeout issues when using contexts with 1
 4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`.
 
 
-5. API key ? Random doesn't matter .
+5. API key? Random doesn't matter.
 
 ## Multi-Account Support
 
@@ -131,7 +130,7 @@ main();
 
 ## Tool Calling Support
 
-This proxy server supports tool calling functionality, allowing you to use it with tools like opencode and crush.
+This proxy server supports tool calling functionality, allowing you to use it with tools like opencode and crush roo cline kilo and etc . 
 
 ### opencode Configuration
 
@@ -190,7 +189,7 @@ To use with crush, add the following to `~/.config/crush/crush.json`:
 
 **Note**: For crush to work properly with streaming responses, you need to enable streaming in the proxy server by setting `STREAM=true` in your `.env` file.
 
-### Claude code Router 
+### Claude code Router
 ```json
 {
   "LOG": false,
@@ -220,8 +219,17 @@ To use with crush, add the following to `~/.config/crush/crush.json`:
 }
 ```
 
+### Roo Code and Kilo Code Configuration
 
+To use with Roo Code or Kilo Code clients:
 
+1. Go to settings in the client
+2. Choose the OpenAI compatible option
+3. Set the URL to: `http://localhost:8080/v1`
+4. Use a random API key (it doesn't matter)
+5. Type or choose the model name exactly as: `"qwen3-coder-plus"` (including the quotes)
+6. Disable streaming in the checkbox for Roo Code or Kilo Code
+7. Change the max output setting from -1 to 65000
 
 ## Token Counting
 
