@@ -219,17 +219,18 @@ To use with crush, add the following to `~/.config/crush/crush.json`:
 }
 ```
 
-### Roo Code and Kilo Code Configuration
+### Roo Code and Kilo Code and Cline Configuration
 
-To use with Roo Code or Kilo Code clients:
+To use with Roo Code or Kilo Code or Cline :
 
 1. Go to settings in the client
 2. Choose the OpenAI compatible option
 3. Set the URL to: `http://localhost:8080/v1`
 4. Use a random API key (it doesn't matter)
-5. Type or choose the model name exactly as: `"qwen3-coder-plus"` (including the quotes)
+5. Type or choose the model name exactly as: `qwen3-coder-plus`
 6. Disable streaming in the checkbox for Roo Code or Kilo Code
 7. Change the max output setting from -1 to 65000
+8. You can change the context window size to around 300k or so but after 150k it gets slower so keep that in mind . 
 
 ## Token Counting
 
