@@ -40,11 +40,20 @@ Token usage data is stored in the existing `request_counts.json` file alongside 
 ## Usage
 
 ### View Token Usage Report
+
+You can use either of these commands to view token usage reports:
+
 ```bash
 npm run auth:tokens
 ```
 
-This command displays a clean table showing:
+or
+
+```bash
+npm run tokens
+```
+
+Both commands display a clean table showing:
 - Daily input tokens, output tokens, and totals
 - Overall lifetime totals
 - Total request count

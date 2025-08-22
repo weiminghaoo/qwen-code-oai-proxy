@@ -238,13 +238,19 @@ The proxy now displays token counts in the terminal for each request, showing bo
 
 ## Token Usage Tracking
 
-The proxy includes comprehensive token usage tracking that monitors daily input and output token consumption across all accounts. View detailed token usage reports with:
+The proxy includes comprehensive token usage tracking that monitors daily input and output token consumption across all accounts. View detailed token usage reports with either:
 
 ```bash
 npm run auth:tokens
 ```
 
-This command displays a clean table showing daily token usage trends, lifetime totals, and request counts. For more information, see `docs/token-usage-tracking.md`.
+or
+
+```bash
+npm run tokens
+```
+
+Both commands display a clean table showing daily token usage trends, lifetime totals, and request counts. For more information, see `docs/token-usage-tracking.md`.
 
 For more detailed documentation, see the `docs/` directory.
 
