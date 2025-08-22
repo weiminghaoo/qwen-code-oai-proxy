@@ -236,6 +236,16 @@ To use with Roo Code or Kilo Code or Cline :
 
 The proxy now displays token counts in the terminal for each request, showing both input tokens and API-returned usage statistics (prompt, completion, and total tokens).
 
+## Token Usage Tracking
+
+The proxy includes comprehensive token usage tracking that monitors daily input and output token consumption across all accounts. View detailed token usage reports with:
+
+```bash
+npm run auth:tokens
+```
+
+This command displays a clean table showing daily token usage trends, lifetime totals, and request counts. For more information, see `docs/token-usage-tracking.md`.
+
 For more detailed documentation, see the `docs/` directory.
 
 For information about configuring a default account, see `docs/default-account.md`.
