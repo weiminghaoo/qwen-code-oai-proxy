@@ -60,6 +60,12 @@ class QwenAuthManager {
   }
 
   async loadCredentials() {
+    // Check if QWEN_CODE_AUTH_USE is disabled
+    const config = require('../config.js');
+    if (config.qwenCodeAuthUse === false) {
+      return null;
+    }
+    
     if (this.credentials) {
       return this.credentials;
     }
@@ -90,6 +96,23 @@ class QwenAuthManager {
         file.endsWith(QWEN_MULTI_ACCOUNT_SUFFIX) &&
         file !== QWEN_CREDENTIAL_FILENAME
       );
+      
+      // Check for conflicting auth files and show warning if needed
+      const config = require('../config.js');
+      try {
+        // Check if default auth file exists
+        const defaultAuthExists = await fs.access(this.credentialsPath).then(() => true).catch(() => false);
+        
+        // Show warning if both default and named auth files exist AND QWEN_CODE_AUTH_USE is enabled
+        if (defaultAuthExists && accountFiles.length > 0 && config.qwenCodeAuthUse !== false) {
+          console.log('\n\x1b[31m%s\x1b[0m', '[PROXY WARNING] Conflicting authentication files detected!');
+          console.log('\x1b[31m%s\x1b[0m', 'Found both default ~/.qwen/oauth_creds.json (created by qwen-code) and named account file(s) ~/.qwen/oauth_creds_<name>.json');
+          console.log('\x1b[31m%s\x1b[0m', 'If these were created with the same account, token refresh conflicts will occur, invalidating the other file.');
+          console.log('\x1b[31m%s\x1b[0m', 'Solution: Set QWEN_CODE_AUTH_USE=false in your .env file, or remove the default auth file.');
+        }
+      } catch (checkError) {
+        // Ignore check errors
+      }
       
       // Load each account
       for (const file of accountFiles) {
