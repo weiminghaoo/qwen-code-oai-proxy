@@ -107,6 +107,11 @@ class QwenAPI {
     this.pendingRequests = []; // Queue for waiting requests
     this.currentAccountIndex = 0; // Track current account index in memory
     
+    // File I/O caching mechanism
+    this.lastSaveTime = 0;
+    this.saveInterval = 60000; // Save every 60 seconds
+    this.pendingSave = false;
+    
     this.loadRequestCounts();
   }
 
@@ -156,8 +161,30 @@ class QwenAPI {
         tokenUsage: Object.fromEntries(this.tokenUsage)
       };
       await fs.writeFile(this.requestCountFile, JSON.stringify(counts, null, 2));
+      this.lastSaveTime = Date.now();
+      this.pendingSave = false;
     } catch (error) {
       console.warn('Failed to save request counts:', error.message);
+      this.pendingSave = false;
+    }
+  }
+
+  /**
+   * Schedule a save operation with debouncing
+   */
+  scheduleSave() {
+    // Don't schedule if save is already pending
+    if (this.pendingSave) return;
+    
+    this.pendingSave = true;
+    const now = Date.now();
+    
+    // If saved recently, wait for interval, otherwise save immediately
+    if (now - this.lastSaveTime < this.saveInterval) {
+      setTimeout(() => this.saveRequestCounts(), this.saveInterval);
+    } else {
+      // Save immediately
+      this.saveRequestCounts();
     }
   }
 
@@ -182,7 +209,9 @@ class QwenAPI {
     this.resetRequestCountsIfNeeded();
     const currentCount = this.requestCount.get(accountId) || 0;
     this.requestCount.set(accountId, currentCount + 1);
-    await this.saveRequestCounts();
+    
+    // Schedule save instead of saving immediately
+    this.scheduleSave();
   }
 
   /**
@@ -217,10 +246,10 @@ class QwenAPI {
           inputTokens: inputTokens,
           outputTokens: outputTokens
         });
-      }
+}
       
-      // Save the updated token usage data
-      await this.saveRequestCounts();
+      // Schedule save instead of saving immediately
+      this.scheduleSave();
     } catch (error) {
       console.warn('Failed to record token usage:', error.message);
     }
