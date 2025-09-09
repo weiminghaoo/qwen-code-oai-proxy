@@ -321,6 +321,31 @@ app.get('/health', (req, res) => {
 const PORT = config.port;
 const HOST = config.host;
 
+// Handle graceful shutdown to save pending data
+process.on('SIGINT', async () => {
+  console.log('\n\x1b[33m%s\x1b[0m', 'Received SIGINT, shutting down gracefully...');
+  try {
+    // Force save any pending request counts before exit
+    await qwenAPI.saveRequestCounts();
+    console.log('\x1b[32m%s\x1b[0m', 'Request counts saved successfully');
+  } catch (error) {
+    console.error('\x1b[31m%s\x1b[0m', 'Failed to save request counts on shutdown:', error.message);
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n\x1b[33m%s\x1b[0m', 'Received SIGTERM, shutting down gracefully...');
+  try {
+    // Force save any pending request counts before exit
+    await qwenAPI.saveRequestCounts();
+    console.log('\x1b[32m%s\x1b[0m', 'Request counts saved successfully');
+  } catch (error) {
+    console.error('\x1b[31m%s\x1b[0m', 'Failed to save request counts on shutdown:', error.message);
+  }
+  process.exit(0);
+});
+
 app.listen(PORT, HOST, async () => {
   console.log(`Qwen OpenAI Proxy listening on http://${HOST}:${PORT}`);
   console.log(`OpenAI-compatible endpoint: http://${HOST}:${PORT}/v1`);
