@@ -101,6 +101,12 @@ class QwenAPI {
     this.tokenUsage = new Map(); // Track token usage per account
     this.lastResetDate = new Date().toISOString().split('T')[0]; // Track last reset date (UTC)
     this.requestCountFile = path.join(this.authManager.qwenDir, 'request_counts.json');
+    
+    // Account rotation locking mechanism
+    this.accountLock = false; // Simple boolean lock for account rotation
+    this.pendingRequests = []; // Queue for waiting requests
+    this.currentAccountIndex = 0; // Track current account index in memory
+    
     this.loadRequestCounts();
   }
 
@@ -290,25 +296,65 @@ class QwenAPI {
       return this.chatCompletionsSingleAccount(request);
     }
     
-    // Start with the default account if specified, otherwise start with the first account
-    let currentAccountIndex = 0;
+    // Return a promise that will be queued and processed with locking
+    return new Promise((resolve, reject) => {
+      const processRequest = async () => {
+        // Acquire the lock
+        this.accountLock = true;
+        
+        try {
+          const result = await this.processWithAccountLock(request, accountIds);
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          // Release the lock
+          this.accountLock = false;
+          
+          // Process next request in queue if any
+          if (this.pendingRequests.length > 0) {
+            const nextRequest = this.pendingRequests.shift();
+            nextRequest();
+          }
+        }
+      };
+      
+      // Check if lock is available
+      if (this.accountLock) {
+        // Lock is held, add to queue
+        this.pendingRequests.push(processRequest);
+      } else {
+        // Lock is free, process immediately
+        processRequest();
+      }
+    });
+  }
+
+  async processWithAccountLock(request, accountIds) {
+    // Initialize currentAccountIndex if not set
+    if (this.currentAccountIndex === undefined || this.currentAccountIndex >= accountIds.length) {
+      this.currentAccountIndex = 0;
+    }
+    
+    // Set default account if specified
     const defaultAccount = require('../config.js').defaultAccount;
     if (defaultAccount && accountIds.includes(defaultAccount)) {
-      currentAccountIndex = accountIds.indexOf(defaultAccount);
+      this.currentAccountIndex = accountIds.indexOf(defaultAccount);
       console.log(`\x1b[36mUsing default account: ${defaultAccount}\x1b[0m`);
     }
+    
     let lastError = null;
     const maxRetries = accountIds.length;
     
     for (let i = 0; i < maxRetries; i++) {
       try {
         // Get the current account (sticky until quota error)
-        const accountId = accountIds[currentAccountIndex];
+        const accountId = accountIds[this.currentAccountIndex];
         const credentials = this.authManager.getAccountCredentials(accountId);
         
         if (!credentials) {
           // Move to next account if current one is invalid
-          currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+          this.currentAccountIndex = (this.currentAccountIndex + 1) % accountIds.length;
           continue;
         }
         
@@ -360,10 +406,10 @@ class QwenAPI {
         // Check if this is a quota exceeded error
         if (isQuotaExceededError(error)) {
           console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
-          // Move to next account for the next request
-          currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
+// Move to next account for the next request
+            this.currentAccountIndex = (this.currentAccountIndex + 1) % accountIds.length;
           // Peek at the next account to show which one we're rotating to
-          const nextAccountId = accountIds[currentAccountIndex];
+          const nextAccountId = accountIds[this.currentAccountIndex];
           console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
           // Continue to next account
           continue;
@@ -858,9 +904,9 @@ class QwenAPI {
               console.log(`\x1b[33mAccount ${accountId} has had ${authErrorCount} consecutive auth errors, rotating to next account...\\x1b[0m`);
               // Move to next account for the next request
               currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
-              // Peek at the next account to show which one we're rotating to
-              const nextAccountId = accountIds[currentAccountIndex];
-              console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
+// Peek at the next account to show which one we're rotating to
+            const nextAccountId = accountIds[this.currentAccountIndex];
+            console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
               // Continue to next account
               continue;
             }
