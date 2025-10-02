@@ -4,6 +4,8 @@ A proxy server that exposes Qwen models through an OpenAI-compatible API endpoin
 
 ## Important Notes
 
+This project is designed for local/self use only. For deployment options, check the [qwen-worker-proxy](https://github.com/aptdnfapt/qwen-worker-proxy) repository. That uses  Cloudflare Worker  acting as an OpenAI-compatible proxy for this model .  
+
 Users might face errors or 504 Gateway Timeout issues when using contexts with 130,000 to 150,000 tokens or more. This appears to be a practical limit for Qwen models. Qwen code itself tends to also break down and get stuck on this limit.
 
 ## Quick Start
