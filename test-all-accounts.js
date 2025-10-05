@@ -48,6 +48,16 @@ async function testAccount(accountId, credentials) {
 
   try {
     console.log(colorText(`Testing account: ${accountId}`, colors.cyan));
+    // Refresh before test if needed
+    const authManager = new QwenAuthManager();
+    await authManager.loadAllAccounts();
+    const creds = authManager.getAccountCredentials(accountId);
+    if (!creds) {
+      throw new Error('No credentials found');
+    }
+    if (!authManager.isTokenValid(creds)) {
+      await authManager.performTokenRefresh(creds, accountId);
+    }
     
     // Prepare test request
     const testRequest = {
@@ -65,7 +75,8 @@ async function testAccount(accountId, credentials) {
     // Make test request to proxy
     const response = await axios.post(`${PROXY_URL}/v1/chat/completions`, testRequest, {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Qwen-Account': accountId
       },
       timeout: TEST_TIMEOUT
     });

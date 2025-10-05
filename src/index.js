@@ -70,6 +70,7 @@ class QwenOpenAIProxy {
   
   async handleRegularChatCompletion(req, res) {
     try {
+      const accountId = req.headers['x-qwen-account'] || req.query.account || req.body.account;
       // Call Qwen API through our integrated client
       const response = await qwenAPI.chatCompletions({
         model: req.body.model || config.defaultModel,
@@ -79,6 +80,7 @@ class QwenOpenAIProxy {
         temperature: req.body.temperature,
         max_tokens: req.body.max_tokens,
         top_p: req.body.top_p,
+        accountId
       });
       
       // Log the API call
@@ -111,6 +113,7 @@ class QwenOpenAIProxy {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('Access-Control-Allow-Origin', '*');
+      const accountId = req.headers['x-qwen-account'] || req.query.account || req.body.account;
       
       // Call Qwen API streaming method
       const stream = await qwenAPI.streamChatCompletions({
@@ -121,6 +124,7 @@ class QwenOpenAIProxy {
         temperature: req.body.temperature,
         max_tokens: req.body.max_tokens,
         top_p: req.body.top_p,
+        accountId
       });
       
       // Log the API call (without response data since it's streaming)
@@ -318,8 +322,9 @@ app.get('/health', async (req, res) => {
   try {
     await qwenAPI.authManager.loadAllAccounts();
     const accountIds = qwenAPI.authManager.getAccountIds();
-    const failedAccounts = qwenAPI.getHealthyAccounts(accountIds).length === 0 ? 
-      new Set(accountIds) : new Set(accountIds.filter(id => !qwenAPI.getHealthyAccounts(accountIds).includes(id)));
+    const healthyAccounts = qwenAPI.getHealthyAccounts(accountIds);
+    const failedAccounts = healthyAccounts.length === 0 ? 
+      new Set(accountIds) : new Set(accountIds.filter(id => !healthyAccounts.includes(id)));
     
     const accounts = [];
     for (const accountId of accountIds) {
