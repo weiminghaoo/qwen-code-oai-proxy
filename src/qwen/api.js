@@ -17,19 +17,7 @@ const QWEN_MODELS = [
     owned_by: 'qwen'
   },
   {
-    id: 'qwen3-coder-turbo',
-    object: 'model',
-    created: 1754686206,
-    owned_by: 'qwen'
-  },
-  {
-    id: 'qwen3-plus',
-    object: 'model',
-    created: 1754686206,
-    owned_by: 'qwen'
-  },
-  {
-    id: 'qwen3-turbo',
+    id: 'qwen3-coder-flash',
     object: 'model',
     created: 1754686206,
     owned_by: 'qwen'
