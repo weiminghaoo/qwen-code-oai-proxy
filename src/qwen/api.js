@@ -21,8 +21,95 @@ const QWEN_MODELS = [
     object: 'model',
     created: 1754686206,
     owned_by: 'qwen'
+  },
+  {
+    id: 'vision-model',
+    object: 'model',
+    created: 1754686206,
+    owned_by: 'qwen'
   }
 ];
+
+/**
+ * Process messages to handle image content for vision models
+ * @param {Array} messages - Array of messages
+ * @param {string} model - Model name
+ * @returns {Array} Processed messages
+ */
+function processMessagesForVision(messages, model) {
+  // Only process for vision-model
+  if (model !== 'vision-model') {
+    return messages;
+  }
+
+  return messages.map(message => {
+    if (!message.content) {
+      return message;
+    }
+
+    // If content is already an array, assume it's properly formatted
+    if (Array.isArray(message.content)) {
+      return message;
+    }
+
+    // If content is a string, check if it contains image references
+    if (typeof message.content === 'string') {
+      // Look for base64 image patterns or URLs
+      const imagePatterns = [
+        /data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g,
+        /https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|bmp)/gi
+      ];
+
+      let hasImages = false;
+      const content = message.content;
+      const parts = [{ type: 'text', text: content }];
+
+      // Extract base64 images
+      const base64Matches = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g);
+      if (base64Matches) {
+        hasImages = true;
+        base64Matches.forEach(match => {
+          const mimeMatch = match.match(/data:image\/([^;]+);base64,/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'png';
+          const base64Data = match.split(',')[1];
+          
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: match
+            }
+          });
+        });
+      }
+
+      // Extract image URLs
+      const urlMatches = content.match(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|bmp)/gi);
+      if (urlMatches) {
+        hasImages = true;
+        urlMatches.forEach(url => {
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: url
+            }
+          });
+        });
+      }
+
+      // If no images found, keep as string
+      if (!hasImages) {
+        return message;
+      }
+
+      return {
+        ...message,
+        content: parts
+      };
+    }
+
+    return message;
+  });
+}
 
 /**
  * Check if an error is related to authentication/authorization
@@ -386,9 +473,14 @@ class QwenAPI {
         
         // Make API call
         const url = `${apiEndpoint}/chat/completions`;
+        const model = request.model || DEFAULT_MODEL;
+        
+        // Process messages for vision model support
+        const processedMessages = processMessagesForVision(request.messages, model);
+        
         const payload = {
-          model: request.model || DEFAULT_MODEL,
-          messages: request.messages,
+          model: model,
+          messages: processedMessages,
           temperature: request.temperature,
           max_tokens: request.max_tokens,
           top_p: request.top_p,
@@ -503,9 +595,14 @@ class QwenAPI {
     
     // Make API call
     const url = `${apiEndpoint}/chat/completions`;
+    const model = request.model || DEFAULT_MODEL;
+    
+    // Process messages for vision model support
+    const processedMessages = processMessagesForVision(request.messages, model);
+    
     const payload = {
-      model: request.model || DEFAULT_MODEL,
-      messages: request.messages,
+      model: model,
+      messages: processedMessages,
       temperature: request.temperature,
       max_tokens: request.max_tokens,
       top_p: request.top_p,
@@ -608,9 +705,14 @@ class QwenAPI {
       
       // Make streaming API call
       const url = `${apiEndpoint}/chat/completions`;
+      const model = request.model || DEFAULT_MODEL;
+      
+      // Process messages for vision model support
+      const processedMessages = processMessagesForVision(request.messages, model);
+      
       const payload = {
-        model: request.model || DEFAULT_MODEL,
-        messages: request.messages,
+        model: model,
+        messages: processedMessages,
         temperature: request.temperature,
         max_tokens: request.max_tokens,
         top_p: request.top_p,
@@ -790,9 +892,14 @@ class QwenAPI {
           
           // Make streaming API call
           const url = `${apiEndpoint}/chat/completions`;
+          const model = request.model || DEFAULT_MODEL;
+          
+          // Process messages for vision model support
+          const processedMessages = processMessagesForVision(request.messages, model);
+          
           const payload = {
-            model: request.model || DEFAULT_MODEL,
-            messages: request.messages,
+            model: model,
+            messages: processedMessages,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             top_p: request.top_p,
