@@ -177,10 +177,10 @@ class QwenAPI {
     this.lastResetDate = new Date().toISOString().split('T')[0]; // Track last reset date (UTC)
     this.requestCountFile = path.join(this.authManager.qwenDir, 'request_counts.json');
     
-    // Account rotation locking mechanism
-    this.accountLock = false; // Simple boolean lock for account rotation
-    this.pendingRequests = []; // Queue for waiting requests
-    this.currentAccountIndex = 0; // Track current account index in memory
+    // Smart account selection
+    this.failedAccountsFile = path.join(this.authManager.qwenDir, 'failed_accounts.json');
+    this.failedAccounts = new Set();
+    this.lastFailedReset = null;
     
     // File I/O caching mechanism
     this.lastSaveTime = 0;
@@ -188,6 +188,7 @@ class QwenAPI {
     this.pendingSave = false;
     
     this.loadRequestCounts();
+    this.loadFailedAccounts();
   }
 
   /**
@@ -274,6 +275,66 @@ class QwenAPI {
       console.log('Request counts reset for new UTC day');
       this.saveRequestCounts();
     }
+  }
+
+  /**
+   * Load failed accounts from local JSON file
+   */
+  async loadFailedAccounts() {
+    try {
+      const data = await fs.readFile(this.failedAccountsFile, 'utf8');
+      const failed = JSON.parse(data);
+      
+      // Reset failed accounts if it's a new UTC day
+      const today = new Date().toISOString().split('T')[0];
+      if (failed.lastReset !== today) {
+        console.log('Resetting failed accounts for new UTC day');
+        this.failedAccounts.clear();
+        this.lastFailedReset = today;
+        await this.saveFailedAccounts();
+      } else {
+        this.failedAccounts = new Set(failed.accounts || []);
+        this.lastFailedReset = failed.lastReset;
+      }
+    } catch (error) {
+      // File doesn't exist or is invalid, start with empty failed accounts
+      this.failedAccounts.clear();
+      this.lastFailedReset = new Date().toISOString().split('T')[0];
+      this.saveFailedAccounts();
+    }
+  }
+
+  /**
+   * Save failed accounts to local JSON file
+   */
+  async saveFailedAccounts() {
+    try {
+      const data = {
+        accounts: Array.from(this.failedAccounts),
+        lastReset: this.lastFailedReset
+      };
+      await fs.writeFile(this.failedAccountsFile, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.warn('Failed to save failed accounts:', error.message);
+    }
+  }
+
+  /**
+   * Mark an account as failed
+   */
+  async markAccountAsFailed(accountId) {
+    if (!this.failedAccounts.has(accountId)) {
+      this.failedAccounts.add(accountId);
+      console.log(`Marked account ${accountId} as failed`);
+      await this.saveFailedAccounts();
+    }
+  }
+
+  /**
+   * Get list of healthy accounts (not in failed list)
+   */
+  getHealthyAccounts(allAccountIds) {
+    return allAccountIds.filter(id => !this.failedAccounts.has(id));
   }
 
   /**
@@ -367,6 +428,76 @@ class QwenAPI {
     return this.authErrorCount.get(accountId) || 0;
   }
 
+  /**
+   * Get the best available account based on token freshness
+   * @returns {Object|null} Account info with {accountId, credentials}
+   */
+  async getBestAccount() {
+    // Get all available accounts
+    const accountIds = await this.authManager.loadAllAccounts();
+    const healthyAccountIds = this.getHealthyAccounts(accountIds);
+
+    if (healthyAccountIds.length === 0) {
+      console.log('No healthy accounts available');
+      return null;
+    }
+
+    console.log(`Available healthy accounts: ${healthyAccountIds.join(', ')}`);
+
+    // Load credentials for all healthy accounts and find freshest
+    const accountCredentials = [];
+    for (const accountId of healthyAccountIds) {
+      const credentials = await this.authManager.loadAccountCredentials(accountId);
+      if (credentials) {
+        const minutesLeft = (credentials.expiry_date - Date.now()) / 60000;
+        accountCredentials.push({
+          accountId,
+          credentials,
+          minutesLeft
+        });
+      }
+    }
+
+    if (accountCredentials.length === 0) {
+      console.log('No valid credentials found for any healthy account');
+      return null;
+    }
+
+    // Sort by freshness (freshest first)
+    accountCredentials.sort((a, b) => b.minutesLeft - a.minutesLeft);
+
+    // Try accounts from freshest to least fresh
+    for (const account of accountCredentials) {
+      try {
+        let selectedCredentials = account.credentials;
+
+        // If account is expired, try to refresh it
+        if (account.minutesLeft < 0) {
+          console.log(`Account ${account.accountId} is expired, attempting refresh...`);
+          try {
+            selectedCredentials = await this.authManager.refreshAccessToken(account.credentials);
+            console.log(`Successfully refreshed account ${account.accountId}`);
+          } catch (refreshError) {
+            console.log(`Failed to refresh account ${account.accountId}: ${refreshError.message}`);
+            continue; // Try next account
+          }
+        }
+
+        console.log(`Selected account ${account.accountId} (${account.minutesLeft.toFixed(1)} minutes left)`);
+        return {
+          accountId: account.accountId,
+          credentials: selectedCredentials
+        };
+      } catch (error) {
+        console.log(`Failed to prepare account ${account.accountId}: ${error.message}`);
+        continue;
+      }
+    }
+
+    console.log('Could not prepare any account for use');
+    return null;
+  }
+
   async getApiEndpoint(credentials) {
     // Check if credentials contain a custom endpoint
     if (credentials && credentials.resource_url) {
@@ -400,193 +531,119 @@ class QwenAPI {
       return this.chatCompletionsSingleAccount(request);
     }
     
-    // Return a promise that will be queued and processed with locking
-    return new Promise((resolve, reject) => {
-      const processRequest = async () => {
-        // Acquire the lock
-        this.accountLock = true;
-        
-        try {
-          const result = await this.processWithAccountLock(request, accountIds);
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        } finally {
-          // Release the lock
-          this.accountLock = false;
-          
-          // Process next request in queue if any
-          if (this.pendingRequests.length > 0) {
-            const nextRequest = this.pendingRequests.shift();
-            nextRequest();
-          }
-        }
-      };
-      
-      // Check if lock is available
-      if (this.accountLock) {
-        // Lock is held, add to queue
-        this.pendingRequests.push(processRequest);
-      } else {
-        // Lock is free, process immediately
-        processRequest();
-      }
+    // NEW: No locking - each request independently gets best account
+    const bestAccount = await this.getBestAccount();
+    if (!bestAccount) {
+      throw new Error('No healthy accounts available');
+    }
+    
+    try {
+      return await this.processRequestWithAccount(request, bestAccount);
+    } catch (error) {
+      // Handle error and potentially mark account as failed
+      await this.handleRequestError(error, bestAccount.accountId);
+      throw error;
+    }
+  }
+
+  /**
+   * Process request with a specific account (no locking)
+   */
+  async processRequestWithAccount(request, accountInfo) {
+    const { accountId, credentials } = accountInfo;
+    
+    // Show which account we're using
+    console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
+    
+    // Get API endpoint
+    const apiEndpoint = await this.getApiEndpoint(credentials);
+    
+    // Make API call
+    const url = `${apiEndpoint}/chat/completions`;
+    const model = request.model || DEFAULT_MODEL;
+    
+    // Process messages for vision model support
+    const processedMessages = processMessagesForVision(request.messages, model);
+    
+    const payload = {
+      model: model,
+      messages: processedMessages,
+      temperature: request.temperature,
+      max_tokens: request.max_tokens,
+      top_p: request.top_p,
+      tools: request.tools,
+      tool_choice: request.tool_choice,
+      stream: false
+    };
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${credentials.access_token}`,
+    };
+
+    const response = await axios.post(url, payload, { 
+      headers: headers,
+      timeout: 300000 // 5 minutes timeout
     });
+
+    // Increment request count for successful request
+    await this.incrementRequestCount(accountId);
+    
+    // Reset auth error count on successful request
+    this.resetAuthErrorCount(accountId);
+    
+    // Record token usage if available
+    if (response.data && response.data.usage) {
+      await this.recordTokenUsage(
+        accountId, 
+        response.data.usage.prompt_tokens || 0,
+        response.data.usage.completion_tokens || 0
+      );
+    }
+    
+    console.log(`\x1b[32mRequest completed successfully using account ${accountId}\x1b[0m`);
+    return response.data;
   }
 
-  async processWithAccountLock(request, accountIds) {
-    // Initialize currentAccountIndex if not set
-    if (this.currentAccountIndex === undefined || this.currentAccountIndex >= accountIds.length) {
-      this.currentAccountIndex = 0;
+  /**
+   * Handle request errors with smart account management
+   */
+  async handleRequestError(error, accountId) {
+    if (!error.response) {
+      // Network or other non-API errors - don't mark account as failed
+      return;
     }
+
+    const status = error.response.status;
+    const errorData = error.response.data || {};
     
-    // Set default account if specified
-    const defaultAccount = require('../config.js').defaultAccount;
-    if (defaultAccount && accountIds.includes(defaultAccount)) {
-      this.currentAccountIndex = accountIds.indexOf(defaultAccount);
-      console.log(`\x1b[36mUsing default account: ${defaultAccount}\x1b[0m`);
-    }
-    
-    let lastError = null;
-    const maxRetries = accountIds.length;
-    
-    for (let i = 0; i < maxRetries; i++) {
+    // Mark account as failed for specific error types
+    if (status === 429 || // Rate limit/quota exceeded
+        (status === 401 && errorData.error?.message?.includes('Invalid access token')) ||
+        (status === 400 && errorData.error?.message?.includes('quota'))) {
+      
+      console.log(`\x1b[33mMarking account ${accountId} as failed due to ${status} error\x1b[0m`);
+      await this.markAccountAsFailed(accountId);
+    } else if (status === 401) {
+      // Try to refresh token for other 401 errors
       try {
-        // Get the current account (sticky until quota error)
-        const accountId = accountIds[this.currentAccountIndex];
-        const credentials = this.authManager.getAccountCredentials(accountId);
-        
-        if (!credentials) {
-          // Move to next account if current one is invalid
-          this.currentAccountIndex = (this.currentAccountIndex + 1) % accountIds.length;
-          continue;
+        console.log(`\x1b[33mAttempting token refresh for account ${accountId}\x1b[0m`);
+        const credentials = await this.authManager.loadAccountCredentials(accountId);
+        if (credentials) {
+          await this.authManager.refreshAccessToken(credentials);
+          console.log(`\x1b[32mSuccessfully refreshed token for account ${accountId}\x1b[0m`);
         }
-        
-        // Show which account we're using
-        console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId) + 1} today)\x1b[0m`);
-        
-        // Get a valid access token for this account
-        const accessToken = await this.authManager.getValidAccessToken(accountId);
-        
-        // Get API endpoint
-        const apiEndpoint = await this.getApiEndpoint(credentials);
-        
-        // Make API call
-        const url = `${apiEndpoint}/chat/completions`;
-        const model = request.model || DEFAULT_MODEL;
-        
-        // Process messages for vision model support
-        const processedMessages = processMessagesForVision(request.messages, model);
-        
-        const payload = {
-          model: model,
-          messages: processedMessages,
-          temperature: request.temperature,
-          max_tokens: request.max_tokens,
-          top_p: request.top_p,
-          tools: request.tools,
-          tool_choice: request.tool_choice
-        };
-        
-        const headers = {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-          'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
-        };
-        
-        // Increment request count for this account
-        await this.incrementRequestCount(accountId);
-        console.log(`\x1b[36mUsing account ${accountId} (Request #${this.getRequestCount(accountId)} today)\x1b[0m`);
-        
-        const response = await axios.post(url, payload, { headers, timeout: 300000 }); // 5 minute timeout
-        // Reset auth error count on successful request
-        this.resetAuthErrorCount(accountId);
-        
-        // Record token usage if available in response
-        if (response.data && response.data.usage) {
-          const { prompt_tokens = 0, completion_tokens = 0 } = response.data.usage;
-          await this.recordTokenUsage(accountId, prompt_tokens, completion_tokens);
-        }
-        
-        return response.data;
-      } catch (error) {
-        lastError = error;
-        
-        // Check if this is a quota exceeded error
-        if (isQuotaExceededError(error)) {
-          console.log(`\x1b[33mAccount ${accountId} quota exceeded (Request #${this.getRequestCount(accountId)}), rotating to next account...\\x1b[0m`);
-// Move to next account for the next request
-            this.currentAccountIndex = (this.currentAccountIndex + 1) % accountIds.length;
-          // Peek at the next account to show which one we're rotating to
-          const nextAccountId = accountIds[this.currentAccountIndex];
-          console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
-          // Continue to next account
-          continue;
-        }
-        
-        // Check if this is an authentication error that might benefit from a retry
-        if (isAuthError(error)) {
-          // Increment auth error count for this account
-          const authErrorCount = this.incrementAuthErrorCount(accountId);
-          console.log(`\x1b[33mDetected auth error (${error.response?.status || 'N/A'}) for account ${accountId} (consecutive count: ${authErrorCount})\x1b[0m`);
-          
-          // If we've had 3 consecutive auth errors, rotate to next account
-          if (authErrorCount >= 3) {
-            console.log(`\x1b[33mAccount ${accountId} has had ${authErrorCount} consecutive auth errors, rotating to next account...\\x1b[0m`);
-            // Move to next account for the next request
-            currentAccountIndex = (currentAccountIndex + 1) % accountIds.length;
-            // Peek at the next account to show which one we're rotating to
-            const nextAccountId = accountIds[currentAccountIndex];
-            console.log(`\x1b[33mWill try account ${nextAccountId} next\\x1b[0m`);
-            // Continue to next account
-            continue;
-          }
-          
-          // Try token refresh for auth errors (less than 3 consecutive)
-          console.log('\x1b[33m%s\x1b[0m', `Attempting token refresh and retry...`);
-          try {
-            // Force refresh the token and retry once
-            await this.authManager.performTokenRefresh(credentials, accountId);
-            const newAccessToken = await this.authManager.getValidAccessToken(accountId);
-            
-            // Retry the request with the new token
-            console.log('\x1b[36m%s\x1b[0m', 'Retrying request with refreshed token...');
-            const retryHeaders = {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${newAccessToken}`,
-              'User-Agent': 'QwenOpenAIProxy/1.0.0 (linux; x64)'
-            };
-            
-            const retryResponse = await axios.post(url, payload, { headers: retryHeaders, timeout: 300000 });
-            console.log('\x1b[32m%s\x1b[0m', 'Request succeeded after token refresh');
-            // Reset auth error count on successful request
-            this.resetAuthErrorCount(accountId);
-            return retryResponse.data;
-          } catch (retryError) {
-            console.error('\x1b[31m%s\x1b[0m', 'Request failed even after token refresh');
-            // If retry fails, continue to next account
-            continue;
-          }
-        }
-        
-        // For other errors, re-throw
-        if (error.response) {
-          // The request was made and the server responded with a status code
-          throw new Error(`Qwen API error: ${error.response.status} ${JSON.stringify(error.response.data)}`);
-        } else if (error.request) {
-          // The request was made but no response was received
-          throw new Error(`Qwen API request failed: No response received`);
-        } else {
-          // Something happened in setting up the request that triggered an Error
-          throw new Error(`Qwen API request failed: ${error.message}`);
-        }
+      } catch (refreshError) {
+        console.log(`\x1b[31mToken refresh failed for account ${accountId}, marking as failed\x1b[0m`);
+        await this.markAccountAsFailed(accountId);
       }
     }
-    
-    // If we get here, all accounts failed
-    throw new Error(`All accounts failed. Last error: ${lastError?.message || 'Unknown error'}`);
+    // For 500/502/504 errors, don't mark account as failed (temporary server issues)
   }
 
+  /**
+   * Chat completions for single account mode
+   */
   async chatCompletionsSingleAccount(request) {
     // Get a valid access token (automatically refreshes if needed)
     const accessToken = await this.authManager.getValidAccessToken();

@@ -314,8 +314,60 @@ app.post('/auth/initiate', (req, res) => proxy.handleAuthInitiate(req, res));
 app.post('/auth/poll', (req, res) => proxy.handleAuthPoll(req, res));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+app.get('/health', async (req, res) => {
+  try {
+    await qwenAPI.authManager.loadAllAccounts();
+    const accountIds = qwenAPI.authManager.getAccountIds();
+    const failedAccounts = qwenAPI.getHealthyAccounts(accountIds).length === 0 ? 
+      new Set(accountIds) : new Set(accountIds.filter(id => !qwenAPI.getHealthyAccounts(accountIds).includes(id)));
+    
+    const accounts = [];
+    for (const accountId of accountIds) {
+      const credentials = qwenAPI.authManager.getAccountCredentials(accountId);
+      let status = 'unknown';
+      let expiresIn = null;
+      
+      if (credentials) {
+        const minutesLeft = (credentials.expiry_date - Date.now()) / 60000;
+        if (failedAccounts.has(accountId)) {
+          status = 'failed';
+        } else if (minutesLeft < 0) {
+          status = 'expired';
+        } else if (minutesLeft < 30) {
+          status = 'expiring_soon';
+        } else {
+          status = 'healthy';
+        }
+        expiresIn = Math.max(0, minutesLeft);
+      }
+      
+      accounts.push({
+        id: accountId,
+        status,
+        expiresIn: expiresIn ? `${expiresIn.toFixed(1)} minutes` : null,
+        requestCount: qwenAPI.getRequestCount(accountId)
+      });
+    }
+    
+    const healthyCount = accounts.filter(a => a.status === 'healthy').length;
+    const failedCount = accounts.filter(a => a.status === 'failed').length;
+    
+    res.json({
+      status: 'ok',
+      summary: {
+        total: accounts.length,
+        healthy: healthyCount,
+        failed: failedCount,
+        lastReset: qwenAPI.lastFailedReset
+      },
+      accounts
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message
+    });
+  }
 });
 
 const PORT = config.port;
