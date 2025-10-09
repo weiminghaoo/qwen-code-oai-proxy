@@ -10,6 +10,28 @@ Users might face errors or 504 Gateway Timeout issues when using contexts with 1
 
 ## Quick Start
 
+### Option 1: Using Docker (Recommended)
+
+1.  **Configure Environment**:
+    ```bash
+    cp .env.example .env
+    # Edit .env file with your desired configuration
+    ```
+
+2.  **Build and Run with Docker Compose**:
+    ```bash
+    docker-compose up -d
+    ```
+
+3.  **Authenticate**:
+    ```bash
+    docker-compose exec qwen-proxy npm run auth:add <account>
+    ```
+
+4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`
+
+### Option 2: Local Development
+
 1.  **Install Dependencies**:
     ```bash
     npm install
@@ -24,8 +46,7 @@ Users might face errors or 504 Gateway Timeout issues when using contexts with 1
     ```
 4.  **Use the Proxy**: Point your OpenAI-compatible client to `http://localhost:8080/v1`.
 
-
-5. API key? Random doesn't matter.
+**Note**: API key can be any random string - it doesn't matter for this proxy.
 
 ## Multi-Account Support
 
@@ -33,6 +54,14 @@ The proxy supports multiple Qwen accounts to overcome the 2,000 requests per day
 
 ### Setting Up Multiple Accounts
 
+**For Docker:**
+```bash
+docker-compose exec qwen-proxy npm run auth:list
+docker-compose exec qwen-proxy npm run auth:add <account-id>
+docker-compose exec qwen-proxy npm run auth:remove <account-id>
+```
+
+**For Local Development:**
 1. List existing accounts:
    ```bash
    npm run auth:list
@@ -124,6 +153,16 @@ async function main() {
 
 main();
 ```
+
+## Supported Models
+
+The proxy supports the following Qwen models:
+
+*   `qwen3-coder-plus` - Primary coding model with enhanced capabilities
+*   `qwen3-coder-flash` - Faster, lighter coding model for quick responses
+*   `vision-model` - Multimodal model with image processing capabilities
+
+**Note**: Use the exact model name as shown above when configuring your client applications.
 
 ## Supported Endpoints
 
