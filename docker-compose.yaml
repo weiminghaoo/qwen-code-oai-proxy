@@ -3,6 +3,7 @@ version: '3.8'
 services:
   qwen-proxy:
     build: .
+    container_name: qwen-proxy
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
       - "${CCR_PORT:-3456}:${CCR_PORT:-3456}"
