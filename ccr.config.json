@@ -1,0 +1,45 @@
+{
+  "LOG": true,
+  "LOG_LEVEL": "debug",
+  "CLAUDE_PATH": "",
+  "HOST": "0.0.0.0",
+  "PORT": 3456,
+  "APIKEY": "sk-***",
+  "API_TIMEOUT_MS": "600000",
+  "PROXY_URL": "",
+  "transformers": [],
+  "Providers": [
+    {
+      "name": "qwen-code",
+      "api_base_url": "http://localhost:8080/v1/chat/completions/",
+      "api_key": "wdadwa-random-stuff",
+      "models": [
+        "qwen3-coder-plus",
+        "qwen3-coder-flash",
+        "vision-model"
+      ],
+      "transformer": {
+        "use": [
+          [
+            "maxtoken",
+            {
+              "max_tokens": 65536
+            }
+          ],
+          "enhancetool",
+          "cleancache"
+        ]
+      }
+    }
+  ],
+  "Router": {
+    "default": "qwen-code,vision-model",
+    "background": "qwen-code,vision-model",
+    "think": "qwen-code,vision-model",
+    "longContext": "qwen-code,vision-model",
+    "longContextThreshold": 60000,
+    "webSearch": "qwen-code,vision-model",
+    "image": "qwen-code,vision-model"
+  },
+  "CUSTOM_ROUTER_PATH": ""
+}
