@@ -16,14 +16,25 @@ services:
       - STREAM=${STREAM:-false}
       - DEFAULT_ACCOUNT=${DEFAULT_ACCOUNT:-}
       - QWEN_CODE_AUTH_USE=${QWEN_CODE_AUTH_USE:-true}
-      - CCR_PORT=${CCR_PORT:-3456}
 
     volumes:
       - ./qwen:/root/.qwen
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${PORT:-8080}/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+  
+  claude-code-proxy:
+    image: lie5860/claude-code-proxy:latest
+    restart: always
+    container_name: claude-code-proxy
+    environment:
+      - OPENAI_API_KEY=sk-***
+      - OPENAI_BASE_URL=http://localhost:${PORT:-8080}/v1
+      - BIG_MODEL=qwen3-coder-plus
+      - SMALL_MODEL=qwen3-coder-plus
+    ports:
+      - ${PORT:-8082}:${PORT_CLAUDE:-8082}
