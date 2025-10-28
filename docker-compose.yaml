@@ -37,4 +37,4 @@ services:
       - BIG_MODEL=qwen3-coder-plus
       - SMALL_MODEL=qwen3-coder-plus
     ports:
-      - ${PORT:-8082}:${PORT_CLAUDE:-8082}
+      - ${PORT_CLAUDE:-8082}:${PORT_CLAUDE:-8082}
