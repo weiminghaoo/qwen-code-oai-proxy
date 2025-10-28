@@ -36,5 +36,6 @@ services:
       - OPENAI_BASE_URL=http://localhost:${PORT:-8080}/v1
       - BIG_MODEL=qwen3-coder-plus
       - SMALL_MODEL=qwen3-coder-plus
+      - PORT=${PORT_CLAUDE:-8082}
     ports:
       - ${PORT_CLAUDE:-8082}:${PORT_CLAUDE:-8082}
