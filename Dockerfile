@@ -13,7 +13,7 @@ RUN npm ci --only=production
 COPY . .
 
 # Copy .env file to container
-COPY .env /app/.env
+# COPY .env /app/.env
 
 # Load environment variables
 ENV NODE_ENV=production

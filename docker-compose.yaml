@@ -17,6 +17,7 @@ services:
       - QWEN_CODE_AUTH_USE=${QWEN_CODE_AUTH_USE:-true}
 
     volumes:
+      - ./.env:/app/.env
       - ./qwen:/root/.qwen
     restart: unless-stopped
     healthcheck:
@@ -26,15 +27,15 @@ services:
       retries: 3
       start_period: 40s
   
-  claude-code-proxy:
-    image: lie5860/claude-code-proxy:latest
-    restart: always
-    container_name: claude-code-proxy
-    environment:
-      - OPENAI_API_KEY=sk-***
-      - OPENAI_BASE_URL=http://192.168.31.2:${PORT:-8080}/v1
-      - BIG_MODEL=qwen3-coder-plus
-      - SMALL_MODEL=qwen3-coder-plus
-      - PORT=${PORT_CLAUDE:-8082}
-    ports:
-      - ${PORT_CLAUDE:-8082}:${PORT_CLAUDE:-8082}
+  # claude-code-proxy:
+  #   image: lie5860/claude-code-proxy:latest
+  #   restart: always
+  #   container_name: claude-code-proxy
+  #   environment:
+  #     - OPENAI_API_KEY=sk-***
+  #     - OPENAI_BASE_URL=http://192.168.31.2:${PORT:-8080}/v1
+  #     - BIG_MODEL=qwen3-coder-plus
+  #     - SMALL_MODEL=qwen3-coder-plus
+  #     - PORT=${PORT_CLAUDE:-8082}
+  #   ports:
+  #     - ${PORT_CLAUDE:-8082}:${PORT_CLAUDE:-8082}
